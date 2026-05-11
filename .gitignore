@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+.turbo/
+.cache/
+
+.env
+.env.*
+!.env.example
+
+apps/*/node_modules/
+apps/*/dist/
+apps/*/.env
+apps/*/.env.*
+!apps/*/.env.example
+
+*.log
