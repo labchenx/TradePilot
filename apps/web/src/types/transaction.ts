@@ -1,5 +1,5 @@
 export type TradeSide = 'BUY' | 'SELL';
-export type TradeSource = 'MANUAL' | 'EMAIL';
+export type TradeSource = 'MANUAL' | 'EMAIL' | 'IBKR_CSV';
 
 export interface Transaction {
   id: string;
@@ -15,4 +15,3 @@ export interface Transaction {
   source: TradeSource;
   realizedPnl?: number;
 }
-

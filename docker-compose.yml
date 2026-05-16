@@ -4,7 +4,7 @@ services:
     container_name: tradepilot-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "55432:5432"
     environment:
       POSTGRES_USER: tradepilot
       POSTGRES_PASSWORD: tradepilot

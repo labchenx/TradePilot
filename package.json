@@ -4,8 +4,12 @@
   "private": true,
   "packageManager": "pnpm@10.10.0",
   "scripts": {
-    "api": "pnpm --filter api start:dev",
+    "dev": "npm run db:up && set DATABASE_URL=postgresql://tradepilot:tradepilot@localhost:55432/tradepilot&& pnpm --parallel --filter api --filter web dev",
+    "api": "set DATABASE_URL=postgresql://tradepilot:tradepilot@localhost:55432/tradepilot&& pnpm --filter api start:dev",
     "web": "pnpm --filter web dev",
+    "build": "npm --prefix apps/api run build",
+    "test": "npm --prefix apps/api run test",
+    "typecheck": "npm --prefix apps/api run typecheck",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "prisma:validate": "pnpm --filter api prisma validate"

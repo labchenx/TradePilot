@@ -1,360 +1,609 @@
-# Current State - TradePilot Frontend UI Refactor
+# Current Stage - Dashboard Data Integration
 
 ## 1. 当前阶段目标
 
-当前项目处于前端 UI 工程化整理阶段。
+当前阶段目标是：
 
-我已经使用 Figma Make 生成了一版 React UI 代码。接下来需要将这批代码整理成一个可维护、可继续开发的 React 前端项目结构。
+> 基于已经入库的 IBKR CSV 交易流水数据，为 Dashboard / 投资总览首页接入真实数据。
 
-本阶段的目标不是重新设计 UI，也不是实现完整后端接口，而是：
-
-- 保留 Figma Make 生成的页面视觉效果
-- 整理 React 组件结构
-- 规范 TypeScript 类型
-- 拆分页面、布局、业务组件和通用组件
-- 清理重复代码和无用代码
-- 建立 mock 数据层
-- 建立后续接入真实 API 的基础结构
-- 确保项目可以正常启动、构建和维护
-
-## 2. 项目背景
-
-项目名称暂定为 TradePilot。
-
-TradePilot 是一个面向个人投资者的历史交易数据分析平台，主要用于整理和展示用户的股票交易记录、持仓、收益、资金流和交易行为。
-
-当前 MVP 的核心闭环是：
+前面阶段已经围绕 IBKR CSV 完成或正在完成：
 
 ```txt
-上传 / 粘贴 IBKR 交易记录
-        ↓
-解析交易数据
-        ↓
-预览解析结果
-        ↓
-确认导入
-        ↓
-生成交易历史
-        ↓
-计算当前持仓和收益
-        ↓
-Dashboard 展示
+CSV 文件
+  ↓
+解析 Transaction History
+  ↓
+标准化为 transaction_events
+  ↓
+导入数据库
 ```
 
-第一阶段不做复杂回测，不做自动交易，不做投资建议。
+本阶段不继续修改 CSV parser，不重做首页 UI，而是基于已经入库的 `transaction_events` 数据，生成 Dashboard 首页需要的统计数据、图表数据和排行榜数据。
 
-## 3. 当前已有内容
+---
 
-目前已经有：
+## 2. 当前阶段重点
 
-- Figma Make 生成的 React UI 代码
-- 若干页面级 UI
-- 静态页面结构
-- 部分组件代码
-- 可能存在重复组件、重复样式、未规范命名、未拆分数据逻辑等问题
+本阶段重点不是“把代码堆到一个接口里”，而是：
 
-Figma Make 生成的代码主要用于视觉参考，不代表最终工程结构。
+- 后端按功能模块拆分计算逻辑
+- 前端按 Dashboard 模块接入 API
+- 代码注释尽量完整，方便后续学习
+- 保留当前首页 UI，只替换 mock 数据来源
+- 明确哪些数据是真实计算，哪些数据因为缺少行情数据暂时是估算
 
-## 4. 本阶段不做的事情
+---
 
-本阶段不要做以下事情：
+## 3. Dashboard 首页模块
 
-- 不要重做 UI 设计
-- 不要大幅改变页面视觉风格
-- 不要引入复杂状态管理
-- 不要接入真实后端接口
-- 不要实现 IBKR Flex Query
-- 不要实现邮箱自动读取
-- 不要实现登录注册后端逻辑
-- 不要加入复杂的投资收益算法
-- 不要加入 AI 分析功能
-- 不要删除主要页面功能
-
-如果发现某些页面逻辑不完整，可以先用 mock 数据和 TODO 注释保留扩展点。
-
-## 5. 技术方向
-
-前端技术栈优先保持为：
-
-- React
-- TypeScript
-- Vite
-- React Router
-- Tailwind CSS 或当前项目已有样式方案
-- ECharts / Recharts 可后续接入，不在本阶段强行实现
-
-如果当前项目已经使用了某些 UI 组件库或样式方案，请优先沿用，不要无必要更换。
-
-## 6. 推荐目录结构
-
-请将前端代码整理为类似结构：
+首页目前需要展示以下模块：
 
 ```txt
-src/
-  app/
-    App.tsx
-    router.tsx
-
-  layouts/
-    MainLayout.tsx
-
-  pages/
-    DashboardPage.tsx
-    TransactionsPage.tsx
-    HoldingsPage.tsx
-    ImportPage.tsx
-    PerformancePage.tsx
-    CashFlowPage.tsx
-    BehaviorPage.tsx
-    SettingsPage.tsx
-
-  components/
-    common/
-      Button.tsx
-      Card.tsx
-      EmptyState.tsx
-      PageHeader.tsx
-      StatCard.tsx
-
-    layout/
-      Sidebar.tsx
-      Header.tsx
-
-    dashboard/
-      PortfolioSummary.tsx
-      AssetAllocation.tsx
-      RecentTransactions.tsx
-      PerformanceChart.tsx
-
-    transactions/
-      TransactionTable.tsx
-      TransactionFilters.tsx
-
-    holdings/
-      HoldingsTable.tsx
-      HoldingCard.tsx
-
-    import/
-      ImportUploader.tsx
-      ImportPreviewTable.tsx
-      ImportSteps.tsx
-
-  data/
-    mockTransactions.ts
-    mockHoldings.ts
-    mockDashboard.ts
-
-  types/
-    transaction.ts
-    holding.ts
-    dashboard.ts
-    import.ts
-
-  hooks/
-    useTransactions.ts
-    useHoldings.ts
-    useDashboard.ts
-
-  services/
-    apiClient.ts
-    transactionService.ts
-    holdingService.ts
-    importService.ts
-
-  utils/
-    formatCurrency.ts
-    formatPercent.ts
-    formatDate.ts
-    calculateReturn.ts
-
-  styles/
-    globals.css
+1. Summary Overview 顶部整体概览
+2. Asset Trend 资产走势
+3. Allocation 持仓占比
+4. Return Breakdown 收益构成
+5. Realized P/L by Symbol 单股票已实现盈亏
+6. Recent Trades 最近交易
 ```
 
-如果当前项目结构已经存在，请在不破坏现有启动方式的前提下进行整理。
+后端和前端都应围绕这几个模块拆分代码。
 
-## 7. 页面范围
+---
 
-当前至少需要保留以下页面或导航入口。
+## 4. 后端接口设计
 
-### Dashboard
+建议提供以下接口：
 
-展示：
+```txt
+GET /dashboard/summary
+GET /dashboard/asset-trend
+GET /dashboard/allocation
+GET /dashboard/return-breakdown
+GET /dashboard/realized-pnl-by-symbol
+GET /dashboard/recent-trades
+```
 
-- 总资产
-- 总收益
-- 今日 / 本月 / 累计收益
-- 当前持仓概览
-- 最近交易记录
-- 收益走势图占位
-- 资产分布占位
+如果项目更适合聚合接口，也可以增加：
 
-### Transactions
+```txt
+GET /dashboard
+```
 
-展示：
+但内部代码仍然需要按功能拆分，不要把所有计算逻辑写在一个大函数中。
 
-- 股票交易历史表格
-- 买入 / 卖出类型
-- 股票代码
-- 交易日期
-- 数量
-- 成交价格
-- 手续费
-- 总金额
-- 已实现盈亏，如暂时没有可以 mock
+---
 
-### Holdings
+## 5. 建议后端目录结构
 
-展示：
+如果当前项目已有 NestJS 后端结构，建议新增或整理为：
 
-- 当前持仓
-- 股票代码
-- 持仓数量
-- 平均成本
-- 当前价格
-- 当前市值
-- 未实现盈亏
-- 收益率
+```txt
+src/dashboard/
+  dashboard.module.ts
+  dashboard.controller.ts
+  dashboard.service.ts
 
-### Import
+  calculators/
+    dashboard-summary.calculator.ts
+    asset-trend.calculator.ts
+    allocation.calculator.ts
+    return-breakdown.calculator.ts
+    realized-pnl.calculator.ts
+    recent-trades.calculator.ts
 
-展示：
+  dto/
+    dashboard-summary.dto.ts
+    asset-trend.dto.ts
+    allocation.dto.ts
+    return-breakdown.dto.ts
+    realized-pnl-by-symbol.dto.ts
+    recent-trade.dto.ts
+```
 
-- 上传 CSV / 粘贴邮件内容入口
-- 解析预览区域
-- 确认导入按钮
-- 导入状态提示
+如果当前项目结构不同，可以基于现有结构调整，但需要保持职责清晰。
 
-### Performance
+---
 
-展示：
+## 6. Summary Overview 顶部整体概览
 
-- 按股票维度的收益分析
-- 已实现盈亏
-- 未实现盈亏
-- 累计收益
-- 收益贡献
-
-### Cash Flow
-
-展示：
-
-- 入金
-- 出金
-- 净入金
-- 分红
-- 手续费
-
-### Behavior
-
-展示：
-
-- 交易次数
-- 买入 / 卖出频率
-- 持仓周期
-- 高频交易提示
-- 仓位集中度提示
-
-### Settings
-
-展示：
-
-- 基础偏好设置入口
-- 账户信息占位
-- 数据导入设置占位
-
-## 8. 数据约定
-
-本阶段使用 mock 数据。
-
-请将页面中写死的数据抽离到 `src/data/`。
-
-基础类型可以包括：
+### 6.1 需要返回字段
 
 ```ts
-export type TradeSide = "BUY" | "SELL";
-
-export interface Transaction {
-  id: string;
-  symbol: string;
-  side: TradeSide;
-  quantity: number;
-  price: number;
-  fee: number;
-  tradeDate: string;
-  amount: number;
-  realizedPnL?: number;
-  currency: string;
-}
-
-export interface Holding {
-  id: string;
-  symbol: string;
-  quantity: number;
-  averageCost: number;
-  currentPrice: number;
-  marketValue: number;
-  unrealizedPnL: number;
-  unrealizedPnLPercent: number;
-  currency: string;
-}
-
-export interface DashboardSummary {
-  totalMarketValue: number;
+export interface DashboardSummaryDto {
+  totalAssets: number;
+  stockMarketValue: number;
+  cashBalance: number;
   netDeposit: number;
-  totalPnL: number;
-  totalReturnPercent: number;
-  realizedPnL: number;
-  unrealizedPnL: number;
+  totalPnl: number;
+  returnRate: number;
+  realizedPnl: number;
+  realizedNetIncome: number;
+
+  estimated: {
+    stockMarketValue: boolean;
+    totalAssets: boolean;
+    totalPnl: boolean;
+    returnRate: boolean;
+  };
+
+  warnings?: string[];
 }
 ```
 
-后续真实 API 接入时，应尽量复用这些类型。
+### 6.2 字段说明
 
-## 9. 代码整理要求
+| 字段                | 中文说明     | 当前阶段计算方式                   |
+| ------------------- | ------------ | ---------------------------------- |
+| `totalAssets`       | 总资产       | 股票市值 + 现金余额                |
+| `stockMarketValue`  | 股票市值     | 当前没有行情时，用剩余持仓成本估算 |
+| `cashBalance`       | 现金余额     | 汇总所有 `netAmount`               |
+| `netDeposit`        | 净入金       | 只统计 `DEPOSIT` 和 `WITHDRAWAL`   |
+| `totalPnl`          | 总收益       | 总资产 - 净入金                    |
+| `returnRate`        | 收益率       | 总收益 / 净入金                    |
+| `realizedPnl`       | 已实现盈亏   | 平均成本法计算                     |
+| `realizedNetIncome` | 已实现净收益 | 已实现盈亏 + 股息 + 税费利息等     |
 
-请重点完成：
+### 6.3 注意
 
-- 页面组件拆分
-- 公共组件抽取
-- mock 数据抽离
-- TypeScript 类型补充
-- 重复样式整理
-- 命名规范化
-- 删除无用 import
-- 删除未使用变量
-- 保持 ESLint / TypeScript 通过
-- 保持页面视觉基本不变
-- 保持路由可访问
-- 保持项目可以正常运行
+当前没有行情数据，所以：
 
-## 10. 验证方式
+```txt
+stockMarketValue = 剩余持仓成本估算值
+totalAssets = 估算股票市值 + 现金余额
+totalPnl = 估算总资产 - 净入金
+returnRate = 估算总收益 / 净入金
+```
+
+需要在代码注释和返回字段中标记 `estimated = true`。
+
+---
+
+## 7. Cash Balance 现金余额
+
+现金余额根据 `transaction_events.netAmount` 汇总。
+
+需要包含所有事件：
+
+- 买入
+- 卖出
+- 存款
+- 取款
+- 股息
+- 替代支付
+- 外国预扣税
+- 借方利息
+- 其它费用
+- 调整
+- 外汇交易组成部分
+
+说明：
+
+```txt
+买入 netAmount 通常为负数
+卖出 netAmount 通常为正数
+存款通常为正数
+取款通常为负数
+股息通常为正数
+税费、利息、费用通常为负数
+```
+
+因此现金余额可以直接对 `netAmount` 求和。
+
+---
+
+## 8. Net Deposit 净入金
+
+净入金只统计外部资金流：
+
+```txt
+DEPOSIT
+WITHDRAWAL
+```
+
+计算公式：
+
+```txt
+netDeposit = sum(DEPOSIT.netAmount) + sum(WITHDRAWAL.netAmount)
+```
+
+注意：
+
+- 取款在 CSV 中通常已经是负数
+- 不要把股息、卖出收入、税费算入净入金
+- 净入金代表用户真正投入账户的本金口径
+
+---
+
+## 9. Realized P/L 已实现盈亏
+
+第一版使用：
+
+```txt
+AVERAGE_COST 平均成本法
+```
+
+### 9.1 计算规则
+
+1. 只处理 `TRADE_BUY` 和 `TRADE_SELL`
+2. 按 `symbol` 分组
+3. 每个 symbol 内按 `tradeDate` 升序排序
+4. 如果同一天有多笔交易，按 `rawRowIndex` 升序排序
+
+### 9.2 买入逻辑
+
+```txt
+buyQuantity = quantity
+buyCost = abs(netAmount)
+
+currentQuantity += buyQuantity
+currentCost += buyCost
+```
+
+### 9.3 卖出逻辑
+
+```txt
+sellQuantity = abs(quantity)
+sellProceeds = netAmount
+
+averageCost = currentCost / currentQuantity
+allocatedCost = sellQuantity * averageCost
+realizedPnl = sellProceeds - allocatedCost
+
+currentQuantity -= sellQuantity
+currentCost -= allocatedCost
+```
+
+### 9.4 异常处理
+
+如果出现：
+
+```txt
+sellQuantity > currentQuantity
+```
+
+需要：
+
+- 记录 warning
+- 不要静默忽略
+- 标记该 symbol 需要人工检查
+
+---
+
+## 10. Realized Net Income 已实现净收益
+
+计算公式：
+
+```txt
+realizedNetIncome =
+  realizedPnl
+  + dividendTotal
+  + paymentInLieuTotal
+  + withholdingTaxTotal
+  + debitInterestTotal
+  + otherFeeTotal
+```
+
+注意：
+
+- 税费、利息、费用在数据库中通常已经是负数
+- 因此可以直接相加
+- 已实现净收益不包含未卖出持仓的浮动盈亏
+
+---
+
+## 11. Return Breakdown 收益构成
+
+需要返回：
+
+```ts
+export interface ReturnBreakdownDto {
+  realizedPnl: number;
+  unrealizedPnl: number | null;
+  dividends: number;
+  paymentInLieu: number;
+  feesAndTaxes: number;
+  total: number | null;
+}
+```
+
+当前没有行情数据时：
+
+```txt
+unrealizedPnl = null
+```
+
+前端可以显示：
+
+```txt
+待接入行情
+```
+
+不要伪造未实现盈亏。
+
+---
+
+## 12. Allocation 持仓占比
+
+当前没有行情数据时，先使用“持仓成本口径”估算持仓占比。
+
+### 12.1 返回字段
+
+```ts
+export interface AllocationItemDto {
+  symbol: string;
+  type: 'STOCK' | 'CASH';
+  value: number;
+  percent: number;
+  estimated: boolean;
+}
+```
+
+### 12.2 计算逻辑
+
+1. 根据买卖记录计算每只股票剩余持仓数量和剩余成本
+2. 用 `remainingCost` 暂时作为该股票的估算价值
+3. 加入 `Cash` 现金余额
+4. 计算各项占总资产比例
+
+说明：
+
+```txt
+当前 value 是成本口径估算，不是实时市值。
+后续接入行情数据后，需要替换为 marketValue。
+```
+
+---
+
+## 13. Asset Trend 资产走势
+
+第一版可以按月份聚合。
+
+### 13.1 返回字段
+
+```ts
+export interface AssetTrendPointDto {
+  month: string;
+  totalAssets: number;
+  netDeposit: number;
+  totalPnl: number;
+  estimated: boolean;
+}
+```
+
+### 13.2 当前阶段估算逻辑
+
+在没有历史行情数据时：
+
+```txt
+月度总资产 = 当月现金余额 + 当月剩余持仓成本
+```
+
+注意：
+
+```txt
+这是成本口径估算资产走势，不代表真实历史市值走势。
+```
+
+代码注释中需要明确说明这一点。
+
+---
+
+## 14. Realized P/L by Symbol 单股票已实现盈亏
+
+### 14.1 返回字段
+
+```ts
+export interface RealizedPnlBySymbolDto {
+  symbol: string;
+  realizedPnl: number;
+  realizedPnlPercent: number;
+  totalSellProceeds: number;
+  totalAllocatedCost: number;
+  soldQuantity: number;
+  remainingQuantity: number;
+  remainingCost: number;
+  averageCost: number;
+  tradeCount: number;
+  method: 'AVERAGE_COST';
+}
+```
+
+### 14.2 排序规则
+
+首页默认返回 Top 5。
+
+排序可以采用：
+
+```txt
+realizedPnl 绝对值倒序
+```
+
+或者：
+
+```txt
+realizedPnl 倒序
+```
+
+如果 Figma 首页设计区分盈利和亏损列表，可以后续再拆分为：
+
+```txt
+盈利贡献 Top 5
+亏损来源 Top 5
+```
+
+---
+
+## 15. Recent Trades 最近交易
+
+只返回最近 5 条买卖交易。
+
+### 15.1 只包含
+
+```txt
+TRADE_BUY
+TRADE_SELL
+```
+
+### 15.2 返回字段
+
+```ts
+export interface RecentTradeDto {
+  date: string;
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  quantity: number;
+  price: number;
+  amount: number;
+  commission: number;
+}
+```
+
+排序：
+
+```txt
+tradeDate DESC
+rawRowIndex DESC
+```
+
+---
+
+## 16. 前端接入要求
+
+前端需要将 Dashboard 页面从 mock 数据切换到 API 数据。
+
+不要在 `DashboardPage` 中写复杂计算逻辑。
+
+建议前端结构：
+
+```txt
+src/services/dashboardService.ts
+
+src/hooks/dashboard/
+  useDashboardSummary.ts
+  useAssetTrend.ts
+  useAllocation.ts
+  useReturnBreakdown.ts
+  useRealizedPnlBySymbol.ts
+  useRecentTrades.ts
+```
+
+如果当前项目已有 API service 或 hooks 结构，请沿用现有方式。
+
+---
+
+## 17. Dashboard 页面职责
+
+`DashboardPage` 只负责组合 UI：
+
+```txt
+SummaryCards
+AssetTrendChart
+AllocationCard
+ReturnBreakdownCard
+RealizedPnlBySymbolCard
+RecentTradesCard
+```
+
+不要在页面组件中写复杂计算逻辑。
+
+---
+
+## 18. 注释要求
+
+本阶段代码需要添加中文注释，方便后期学习。
+
+重点注释：
+
+1. 每个 calculator 文件顶部说明它负责计算什么
+2. 平均成本法 realized P/L 的每一步要有注释
+3. `netDeposit` 为什么只统计 `DEPOSIT / WITHDRAWAL`
+4. `realizedNetIncome` 为什么要加股息、税费、利息
+5. 当前没有行情数据时，哪些字段是估算值
+6. 前端 hook 中说明数据来源和返回结构
+7. 关键 service 方法说明输入和输出
+
+---
+
+## 19. 空状态和异常处理
+
+需要处理：
+
+1. `transaction_events` 为空时，返回 0 或空数组，不要报错
+2. 没有卖出记录时，已实现盈亏为 0
+3. 没有行情数据时，未实现盈亏返回 `null`
+4. 卖出数量大于当前持仓时，返回 warnings
+5. 前端请求 loading 状态
+6. 前端请求失败状态
+7. 除数为 0 时收益率返回 0 或 null，避免 NaN
+
+---
+
+## 20. 本阶段不做
+
+本阶段不要做：
+
+- 不重新设计首页 UI
+- 不修改 sidebar / layout
+- 不修改 CSV parser
+- 不接行情 API
+- 不接 AI API
+- 不做登录权限
+- 不大改数据库结构
+- 不引入复杂状态管理
+- 不重构无关页面
+- 不实现完整 Performance 页面
+
+---
+
+## 21. 验证命令
 
 完成后请运行：
 
 ```bash
-npm install
-npm run dev
 npm run build
 ```
 
-如果项目中已有 lint 或 typecheck 命令，也请运行：
+如果项目存在以下命令，也请运行：
 
 ```bash
 npm run lint
 npm run typecheck
+npm run test
 ```
 
-如果某些命令不存在，不要强行新增复杂配置，可以在总结中说明。
+如果命令不存在，不要强行新增复杂配置，请在最终说明中说明。
 
-## 11. 交付结果
+---
 
-完成后请给出：
+## 22. 交付说明要求
 
-- 修改了哪些目录
-- 拆出了哪些组件
-- 新增了哪些 mock 数据
-- 新增了哪些类型
-- 还有哪些 TODO
-- 项目是否可以正常 build
-- 后续建议的下一步开发任务
+完成后请说明：
+
+1. 新增或修改了哪些文件
+2. 后端 Dashboard 数据如何分块计算
+3. 平均成本法已实现盈亏如何计算
+4. 哪些数据是真实 CSV 入库后可计算的
+5. 哪些数据目前是估算值
+6. 前端 Dashboard 哪些模块已经接入 API
+7. 是否保留当前首页 UI
+8. build / lint / typecheck / test 是否通过
+9. 下一步建议做什么
+
+---
+
+## 23. 下一阶段预期
+
+本阶段完成后，下一阶段可以进入：
+
+```txt
+Stage 3 - Market Price Integration
+```
+
+下一阶段可以考虑：
+
+- 接入行情 API
+- 用实时价格计算股票市值
+- 计算未实现盈亏
+- 将资产走势从成本口径升级为市值口径
+- 首页展示真实总资产和真实收益率

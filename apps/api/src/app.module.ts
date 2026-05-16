@@ -1,7 +1,17 @@
 import { Module } from '@nestjs/common';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { HealthModule } from './health/health.module';
+import { ImportsModule } from './imports/imports.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { TransactionEventsModule } from './transaction-events/transaction-events.module';
 
 @Module({
-  imports: [HealthModule],
+  imports: [
+    PrismaModule,
+    HealthModule,
+    ImportsModule,
+    TransactionEventsModule,
+    DashboardModule,
+  ],
 })
 export class AppModule {}

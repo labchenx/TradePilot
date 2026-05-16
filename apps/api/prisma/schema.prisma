@@ -6,3 +6,109 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum ImportSource {
+  IBKR_CSV
+}
+
+enum ImportFileStatus {
+  PREVIEWED
+  CONFIRMED
+  FAILED
+}
+
+enum IbkrEventType {
+  TRADE_BUY
+  TRADE_SELL
+  DEPOSIT
+  WITHDRAWAL
+  DIVIDEND
+  PAYMENT_IN_LIEU
+  WITHHOLDING_TAX
+  DEBIT_INTEREST
+  OTHER_FEE
+  FX_COMPONENT
+  STOCK_GRANT
+  STOCK_DIVIDEND
+  TRANSFER_IN
+  TRANSFER_OUT
+  SPLIT
+  REVERSE_SPLIT
+  ADJUSTMENT
+  UNKNOWN
+}
+
+enum TradeSide {
+  BUY
+  SELL
+}
+
+model ImportFile {
+  id                String              @id @default(cuid())
+  filename          String
+  source            ImportSource        @default(IBKR_CSV)
+  fileHash          String              @unique
+  periodStart       DateTime?           @db.Date
+  periodEnd         DateTime?           @db.Date
+  status            ImportFileStatus    @default(PREVIEWED)
+  summary           Json
+  previewEvents     Json?
+  transactionEvents TransactionEvent[]
+  createdAt         DateTime            @default(now())
+  confirmedAt       DateTime?
+
+  @@map("import_files")
+}
+
+model TransactionEvent {
+  id                 String        @id @default(cuid())
+  importFileId       String
+  importFile         ImportFile    @relation(fields: [importFileId], references: [id])
+  source             ImportSource
+  sourceEventHash    String?       @unique
+  sourceFileName     String
+  sourceSection      String
+  rawRowIndex        Int
+  rawData            Json
+  tradeDate          DateTime      @db.Date
+  accountId          String
+  description        String
+  ibkrType           String
+  eventType          IbkrEventType
+  symbol             String?
+  quantity           Decimal?      @db.Decimal(30, 12)
+  absQuantity        Decimal?      @db.Decimal(30, 12)
+  price              Decimal?      @db.Decimal(30, 12)
+  currency           String?
+  grossAmount        Decimal       @db.Decimal(30, 12)
+  commission         Decimal       @db.Decimal(30, 12)
+  netAmount          Decimal       @db.Decimal(30, 12)
+  side               TradeSide?
+  isTrade            Boolean
+  isExternalCashFlow Boolean
+  isIncome           Boolean
+  isTaxOrFee         Boolean
+  createdAt          DateTime      @default(now())
+
+  @@unique([importFileId, rawRowIndex])
+  @@index([tradeDate])
+  @@index([eventType])
+  @@map("transaction_events")
+}
+
+model MarketQuoteSnapshot {
+  id             String   @id @default(cuid())
+  symbol         String
+  providerSymbol String
+  name           String?
+  price          Decimal  @db.Decimal(30, 12)
+  currency       String
+  provider       String
+  rawData        Json?
+  fetchedAt      DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([symbol, fetchedAt])
+  @@index([providerSymbol, fetchedAt])
+  @@map("market_quote_snapshots")
+}
