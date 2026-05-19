@@ -41,12 +41,22 @@ export function PortfolioStats({ stats }: PortfolioStatsProps) {
           key={stat.label}
           className="flex min-h-[102px] flex-col justify-start rounded-[14px] p-5 shadow-[0_1px_3px_0_rgba(0,0,0,0.1),0_1px_2px_-1px_rgba(0,0,0,0.1)]"
         >
-          <h3 className="text-sm leading-5 font-medium text-neutral-500 dark:text-neutral-400">{stat.label}</h3>
+          <h3
+            className="text-sm leading-5 font-medium text-neutral-500 dark:text-neutral-400"
+            title={stat.tooltip}
+          >
+            {stat.label}
+          </h3>
           <div className="mt-2 text-2xl leading-8 font-bold tracking-normal text-neutral-900 tabular-nums dark:text-white">
             {renderStatValue(stat)}
           </div>
           {stat.subtitle ? (
-            <p className="mt-1 text-sm leading-5 font-medium text-neutral-500 dark:text-neutral-400">{stat.subtitle}</p>
+            <p
+              className="mt-1 text-sm leading-5 font-medium text-neutral-500 dark:text-neutral-400"
+              title={stat.tooltip}
+            >
+              {stat.subtitle}
+            </p>
           ) : null}
         </CardShell>
       ))}

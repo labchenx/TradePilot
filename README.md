@@ -75,7 +75,7 @@ pnpm --filter web dev
 后端启动后，验证当前 Stage 0 唯一 API：
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:4100/health
 ```
 
 预期返回：

@@ -6,6 +6,9 @@
   --foreground: oklch(0.145 0 0);
   --border: rgba(0, 0, 0, 0.1);
   --ring: oklch(0.708 0 0);
+  --chart-axis: #667085;
+  --chart-grid: rgba(102, 112, 133, 0.22);
+  --chart-hover: rgba(15, 23, 42, 0.04);
 }
 
 .dark {
@@ -13,6 +16,9 @@
   --foreground: oklch(0.985 0 0);
   --border: oklch(0.269 0 0);
   --ring: oklch(0.439 0 0);
+  --chart-axis: #a3aab8;
+  --chart-grid: rgba(148, 163, 184, 0.18);
+  --chart-hover: rgba(148, 163, 184, 0.08);
 }
 
 @theme inline {
@@ -60,4 +66,3 @@
     scrollbar-width: none;
   }
 }
-

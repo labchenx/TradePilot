@@ -1,6 +1,4 @@
-import type { Holding } from '@/types';
-
-export const mockHoldings: Holding[] = [
+export const mockHoldings = [
   {
     id: 'holding-amd',
     symbol: 'AMD',
@@ -67,4 +65,3 @@ export const mockHoldings: Holding[] = [
     color: '#6366f1',
   },
 ];
-

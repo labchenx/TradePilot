@@ -159,7 +159,7 @@ AI_API_KEY=""
 后端启动后，可以使用：
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:4100/health
 ```
 
 预期结果：

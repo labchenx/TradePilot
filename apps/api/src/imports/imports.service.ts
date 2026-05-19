@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
+import { MonthlySnapshotService } from '../portfolio/monthly-snapshot.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { parseIbkrCsv } from './parsers/ibkr-csv-parser';
 import {
@@ -76,7 +77,10 @@ function eventRowToResponse(
 
 @Injectable()
 export class ImportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly monthlySnapshotService: MonthlySnapshotService,
+  ) {}
 
   async preview(file: Express.Multer.File): Promise<PreviewResponse> {
     if (!file) {
@@ -253,8 +257,30 @@ export class ImportsService {
         importFile: updatedImportFile,
         importedCount: createResult.count,
         skippedDuplicateCount: createRows.length - createResult.count,
+        earliestImportedTradeDate: rowsToCreate
+          .map((row) => new Date(row.tradeDate))
+          .sort((a, b) => a.getTime() - b.getTime())[0],
+        affectedAccountIds: Array.from(
+          new Set(rowsToCreate.map((row) => row.accountId).filter(Boolean)),
+        ),
       };
     });
+
+    if (result.earliestImportedTradeDate) {
+      const startMonth = result.earliestImportedTradeDate
+        .toISOString()
+        .slice(0, 7);
+      const accountIds = ['ALL', ...result.affectedAccountIds];
+
+      await Promise.all(
+        accountIds.map((accountId) =>
+          this.monthlySnapshotService.regenerateSnapshotsFromMonth(
+            accountId,
+            startMonth,
+          ),
+        ),
+      );
+    }
 
     return {
       importFileId: result.importFile.id,

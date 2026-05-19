@@ -1,10 +1,11 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   // NestFactory creates the HTTP application from the root module.
   const app = await NestFactory.create(AppModule);
+  const logger = new Logger('Bootstrap');
 
   app.enableCors({
     origin: process.env.CORS_ORIGIN?.split(',') ?? [
@@ -21,7 +22,12 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(process.env.PORT ?? 3000);
+  const port = Number(process.env.PORT ?? 4100);
+  const host =
+    process.env.HOST ?? (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
+
+  await app.listen(port, host);
+  logger.log(`API server listening on http://${host}:${port}`);
 }
 
 bootstrap();

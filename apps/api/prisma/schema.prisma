@@ -112,3 +112,61 @@ model MarketQuoteSnapshot {
   @@index([providerSymbol, fetchedAt])
   @@map("market_quote_snapshots")
 }
+
+model PriceHistory {
+  id             String   @id @default(cuid())
+  symbol         String
+  providerSymbol String
+  date           DateTime @db.Date
+  close          Decimal  @db.Decimal(30, 12)
+  adjustedClose  Decimal? @db.Decimal(30, 12)
+  currency       String
+  source         String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([symbol, date, source])
+  @@index([symbol, date])
+  @@index([providerSymbol, date])
+  @@map("price_history")
+}
+
+model PortfolioMonthlySnapshot {
+  id                String   @id @default(cuid())
+  accountId         String
+  month             String
+  snapshotDate      DateTime @db.Date
+  cashBalance       Decimal  @db.Decimal(30, 12)
+  stockMarketValue  Decimal? @db.Decimal(30, 12)
+  totalAssets       Decimal? @db.Decimal(30, 12)
+  netDeposit        Decimal  @db.Decimal(30, 12)
+  totalReturn       Decimal? @db.Decimal(30, 12)
+  realizedPnl       Decimal  @db.Decimal(30, 12)
+  realizedNetIncome Decimal  @db.Decimal(30, 12)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([accountId, month])
+  @@index([accountId, snapshotDate])
+  @@map("portfolio_monthly_snapshots")
+}
+
+model PositionMonthlySnapshot {
+  id            String   @id @default(cuid())
+  accountId     String
+  month         String
+  symbol        String
+  quantity      Decimal  @db.Decimal(30, 12)
+  costBasis     Decimal  @db.Decimal(30, 12)
+  marketPrice   Decimal? @db.Decimal(30, 12)
+  marketValue   Decimal? @db.Decimal(30, 12)
+  unrealizedPnl Decimal? @db.Decimal(30, 12)
+  currency      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([accountId, month, symbol])
+  @@index([accountId, month])
+  @@index([symbol, month])
+  @@map("position_monthly_snapshots")
+}

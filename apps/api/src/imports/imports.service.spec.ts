@@ -149,10 +149,22 @@ function createPrismaMock() {
   return prisma;
 }
 
+function createMonthlySnapshotServiceMock() {
+  return {
+    regenerateSnapshotsFromMonth: jest.fn(async () => ({
+      generatedMonths: 0,
+      warnings: [],
+    })),
+  };
+}
+
 describe('ImportsService', () => {
   it('previews a real IBKR CSV and creates an import file', async () => {
     const prisma = createPrismaMock();
-    const service = new ImportsService(prisma as never);
+    const service = new ImportsService(
+      prisma as never,
+      createMonthlySnapshotServiceMock() as never,
+    );
 
     const result = await service.preview(
       createFileMock('U18666165_20240819_20250819.csv'),
@@ -166,7 +178,11 @@ describe('ImportsService', () => {
 
   it('confirms previewed events and blocks repeated confirm', async () => {
     const prisma = createPrismaMock();
-    const service = new ImportsService(prisma as never);
+    const monthlySnapshotService = createMonthlySnapshotServiceMock();
+    const service = new ImportsService(
+      prisma as never,
+      monthlySnapshotService as never,
+    );
 
     const preview = await service.preview(
       createFileMock('U18666165_20250819_20260513.csv'),
@@ -179,6 +195,10 @@ describe('ImportsService', () => {
     expect(prisma.__state.transactionEvents).toHaveLength(
       preview.parsedEvents.length,
     );
+    expect(monthlySnapshotService.regenerateSnapshotsFromMonth).toHaveBeenCalledWith(
+      'ALL',
+      expect.stringMatching(/^\d{4}-\d{2}$/),
+    );
 
     await expect(service.confirm(preview.importFileId)).rejects.toBeInstanceOf(
       ConflictException,
@@ -187,7 +207,10 @@ describe('ImportsService', () => {
 
   it('blocks previewing a file that was already confirmed', async () => {
     const prisma = createPrismaMock();
-    const service = new ImportsService(prisma as never);
+    const service = new ImportsService(
+      prisma as never,
+      createMonthlySnapshotServiceMock() as never,
+    );
     const file = createFileMock('U18666165_20250819_20260513.csv');
 
     const preview = await service.preview(file);
@@ -200,7 +223,10 @@ describe('ImportsService', () => {
 
   it('skips overlapping events across confirmed CSV files', async () => {
     const prisma = createPrismaMock();
-    const service = new ImportsService(prisma as never);
+    const service = new ImportsService(
+      prisma as never,
+      createMonthlySnapshotServiceMock() as never,
+    );
 
     const firstPreview = await service.preview(
       createFileMock('U18666165_20240819_20250819.csv'),
@@ -229,7 +255,10 @@ describe('ImportsService', () => {
 
   it('returns import details with transaction events after confirm', async () => {
     const prisma = createPrismaMock();
-    const service = new ImportsService(prisma as never);
+    const service = new ImportsService(
+      prisma as never,
+      createMonthlySnapshotServiceMock() as never,
+    );
 
     const preview = await service.preview(
       createFileMock('U18666165_20250819_20260513.csv'),

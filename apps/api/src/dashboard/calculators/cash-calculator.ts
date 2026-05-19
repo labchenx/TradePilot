@@ -67,8 +67,13 @@ function findLatestCashReport(importFiles: DashboardImportFileRow[]) {
       const bTime = b.periodEnd?.getTime() ?? b.createdAt.getTime();
       return bTime - aTime;
     })
-    .map((file) => toImportSummary(file.summary).cashReport)
-    .find((cashReport) => typeof cashReport?.cashBalance === 'number');
+    .map((file) => ({
+      cashReport: toImportSummary(file.summary).cashReport,
+      effectiveDate: file.periodEnd ?? file.createdAt,
+    }))
+    .find(
+      (item) => typeof item.cashReport?.cashBalance === 'number',
+    );
 }
 
 function calculateEventCashFallback(events: DashboardEventRow[]) {
@@ -230,15 +235,32 @@ export function calculateCashMetrics(
   const eventCash = calculateEventCashFallback(events);
   eventCash.warnings.forEach((warning) => warnings.add(warning));
 
-  const latestCashReport = findLatestCashReport(importFiles);
+  const latestCashReportEntry = findLatestCashReport(importFiles);
+  const latestCashReport = latestCashReportEntry?.cashReport;
+  const postCashReportEventCash = latestCashReportEntry
+    ? calculateEventCashFallback(
+        events.filter(
+          (event) =>
+            event.tradeDate.getTime() >
+            latestCashReportEntry.effectiveDate.getTime(),
+        ),
+      )
+    : null;
+  postCashReportEventCash?.warnings.forEach((warning) => warnings.add(warning));
+
   const cashBalance =
     typeof latestCashReport?.cashBalance === 'number'
-      ? decimalFromNumber(latestCashReport.cashBalance)
+      ? decimalFromNumber(latestCashReport.cashBalance).plus(
+          postCashReportEventCash?.cashBalance ?? 0,
+        )
       : eventCash.cashBalance;
   const netDepositFromSummary =
     calculateNetDepositFromImportSummaries(importFiles);
+  const postCashReportNetDeposit = postCashReportEventCash
+    ? postCashReportEventCash.deposits.plus(postCashReportEventCash.withdrawals)
+    : new Decimal(0);
   const netDeposit =
-    netDepositFromSummary?.netDeposit ??
+    netDepositFromSummary?.netDeposit.plus(postCashReportNetDeposit) ??
     eventCash.deposits.plus(eventCash.withdrawals);
 
   if (!latestCashReport) {
@@ -274,52 +296,72 @@ export function calculateCashMetrics(
     cashDebug: {
       deposits: toPlainNumber(
         latestCashReport
-          ? decimalFromNumber(latestCashReport.deposits)
+          ? decimalFromNumber(latestCashReport.deposits).plus(
+              postCashReportEventCash?.deposits ?? 0,
+            )
           : eventCash.deposits,
       ),
       withdrawals: toPlainNumber(
         latestCashReport
-          ? decimalFromNumber(latestCashReport.withdrawals)
+          ? decimalFromNumber(latestCashReport.withdrawals).plus(
+              postCashReportEventCash?.withdrawals ?? 0,
+            )
           : eventCash.withdrawals,
       ),
       buyCash: toPlainNumber(
         latestCashReport
-          ? decimalFromNumber(latestCashReport.buyCash)
+          ? decimalFromNumber(latestCashReport.buyCash).plus(
+              postCashReportEventCash?.buyCash ?? 0,
+            )
           : eventCash.buyCash,
       ),
       sellCash: toPlainNumber(
         latestCashReport
-          ? decimalFromNumber(latestCashReport.sellCash)
+          ? decimalFromNumber(latestCashReport.sellCash).plus(
+              postCashReportEventCash?.sellCash ?? 0,
+            )
           : eventCash.sellCash,
       ),
       dividends: toPlainNumber(
         latestCashReport
-          ? decimalFromNumber(latestCashReport.dividends)
+          ? decimalFromNumber(latestCashReport.dividends).plus(
+              postCashReportEventCash?.dividends ?? 0,
+            )
           : eventCash.dividends,
       ),
       paymentInLieu: toPlainNumber(
         latestCashReport
-          ? decimalFromNumber(latestCashReport.paymentInLieu)
+          ? decimalFromNumber(latestCashReport.paymentInLieu).plus(
+              postCashReportEventCash?.paymentInLieu ?? 0,
+            )
           : eventCash.paymentInLieu,
       ),
       withholdingTax: toPlainNumber(
         latestCashReport
-          ? decimalFromNumber(latestCashReport.withholdingTax)
+          ? decimalFromNumber(latestCashReport.withholdingTax).plus(
+              postCashReportEventCash?.withholdingTax ?? 0,
+            )
           : eventCash.withholdingTax,
       ),
       interest: toPlainNumber(
         latestCashReport
-          ? decimalFromNumber(latestCashReport.interest)
+          ? decimalFromNumber(latestCashReport.interest).plus(
+              postCashReportEventCash?.interest ?? 0,
+            )
           : eventCash.interest,
       ),
       commissions: toPlainNumber(
         latestCashReport
-          ? decimalFromNumber(latestCashReport.commissions)
+          ? decimalFromNumber(latestCashReport.commissions).plus(
+              postCashReportEventCash?.commissions ?? 0,
+            )
           : eventCash.commissions,
       ),
       fees: toPlainNumber(
         latestCashReport
-          ? decimalFromNumber(latestCashReport.fees)
+          ? decimalFromNumber(latestCashReport.fees).plus(
+              postCashReportEventCash?.fees ?? 0,
+            )
           : eventCash.fees,
       ),
       fxCashPnl: toPlainNumber(
@@ -354,4 +396,3 @@ export function calculateCashMetrics(
     warnings: Array.from(warnings),
   };
 }
-

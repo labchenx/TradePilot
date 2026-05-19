@@ -10,6 +10,13 @@ export interface YahooQuote {
 
 export type YahooQuoteResponseObject = Record<string, YahooQuote>;
 
+export interface YahooDailyPrice {
+  date: Date;
+  close: number;
+  adjustedClose?: number;
+  currency: string;
+}
+
 @Injectable()
 export class YahooProvider {
   private readonly client = new YahooFinance({
@@ -29,5 +36,28 @@ export class YahooProvider {
       return: 'object',
       fields: ['symbol', 'regularMarketPrice', 'currency', 'shortName'],
     }) as Promise<YahooQuoteResponseObject>;
+  }
+
+  async getDailyPrices(
+    symbol: string,
+    period1: Date,
+    period2: Date,
+  ): Promise<YahooDailyPrice[]> {
+    const result = await this.client.chart(symbol, {
+      period1,
+      period2,
+      interval: '1d',
+      return: 'array',
+    });
+
+    return result.quotes
+      .filter((quote) => typeof quote.close === 'number')
+      .map((quote) => ({
+        date: quote.date,
+        close: quote.close as number,
+        adjustedClose:
+          typeof quote.adjclose === 'number' ? quote.adjclose : undefined,
+        currency: result.meta.currency,
+      }));
   }
 }

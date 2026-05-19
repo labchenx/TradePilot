@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { IbkrEventType, Prisma } from '@prisma/client';
 import { QuoteService } from '../market-data/quote-service';
+import { MonthlyTrendService } from '../portfolio/monthly-trend.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { calculateAllocation } from './calculators/allocation.calculator';
-import { calculateAssetTrend } from './calculators/asset-trend.calculator';
 import { calculateCashMetrics } from './calculators/cash-calculator';
 import { calculateDashboardSummary } from './calculators/dashboard-summary.calculator';
 import { deduplicateDashboardEvents } from './calculators/deduplicate-events.util';
@@ -25,6 +25,7 @@ export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly quoteService: QuoteService,
+    private readonly monthlyTrendService: MonthlyTrendService,
   ) {}
 
   /**
@@ -87,8 +88,7 @@ export class DashboardService {
   }
 
   async getAssetTrend(range?: AssetTrendRange) {
-    const { events } = await this.findDashboardEvents();
-    return calculateAssetTrend(events, range);
+    return this.monthlyTrendService.getMonthlyTrend(range);
   }
 
   async getAllocation() {

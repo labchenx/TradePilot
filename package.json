@@ -4,8 +4,8 @@
   "private": true,
   "packageManager": "pnpm@10.10.0",
   "scripts": {
-    "dev": "npm run db:up && set DATABASE_URL=postgresql://tradepilot:tradepilot@localhost:55432/tradepilot&& pnpm --parallel --filter api --filter web dev",
-    "api": "set DATABASE_URL=postgresql://tradepilot:tradepilot@localhost:55432/tradepilot&& pnpm --filter api start:dev",
+    "dev": "npm run db:up && set PORT=4100&& set DATABASE_URL=postgresql://tradepilot:tradepilot@localhost:55432/tradepilot&& pnpm --parallel --filter api --filter web dev",
+    "api": "set PORT=4100&& set DATABASE_URL=postgresql://tradepilot:tradepilot@localhost:55432/tradepilot&& pnpm --filter api start:dev",
     "web": "pnpm --filter web dev",
     "build": "npm --prefix apps/api run build",
     "test": "npm --prefix apps/api run test",

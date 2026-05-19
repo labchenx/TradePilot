@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import { Prisma } from '@prisma/client';
 import { DashboardService } from './dashboard.service';
 import { MarketQuoteResult } from '../market-data/quote.types';
+import { calculateAssetTrend } from './calculators/asset-trend.calculator';
 
 function createEvent(
   overrides: Partial<Prisma.TransactionEventGetPayload<object>>,
@@ -98,6 +99,9 @@ function createService(
   return new DashboardService(
     createPrismaMock(events) as never,
     createQuoteServiceMock(quoteFactory) as never,
+    {
+      getMonthlyTrend: jest.fn(async (range) => calculateAssetTrend(events, range)),
+    } as never,
   );
 }
 

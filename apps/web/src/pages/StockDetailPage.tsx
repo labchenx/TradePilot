@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Button, CardShell, ProfitLossNumber, Tag } from '@/components/common';
 import { mockNews, mockTransactions } from '@/data';
-import { holdingService } from '@/services';
+import { useHoldings } from '@/hooks';
 import { formatCurrency } from '@/utils';
 
 const priceHistory = [
@@ -19,9 +19,26 @@ const priceHistory = [
 
 export function StockDetailPage() {
   const { symbol = 'AMD' } = useParams<{ symbol: string }>();
-  const holding = holdingService.getHolding(symbol);
-  const relatedTrades = mockTransactions.filter((trade) => trade.symbol === holding.symbol);
-  const relatedNews = mockNews.filter((news) => news.symbol === holding.symbol).slice(0, 3);
+  const { data, loading } = useHoldings();
+  const holding = data?.holdings.find((item) => item.symbol === symbol);
+  const relatedTrades = mockTransactions.filter((trade) => trade.symbol === symbol);
+  const relatedNews = mockNews.filter((news) => news.symbol === symbol).slice(0, 3);
+
+  if (loading) {
+    return (
+      <CardShell className="p-6 text-sm text-neutral-500 dark:text-neutral-400">
+        Loading position detail...
+      </CardShell>
+    );
+  }
+
+  if (!holding) {
+    return (
+      <CardShell className="p-6 text-sm text-neutral-500 dark:text-neutral-400">
+        Position not found.
+      </CardShell>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -44,19 +61,29 @@ export function StockDetailPage() {
             </div>
           </div>
           <div className="flex flex-col items-end">
-            <div className="text-3xl font-bold text-neutral-900 dark:text-white">{formatCurrency(holding.currentPrice)}</div>
+            <div className="text-3xl font-bold text-neutral-900 dark:text-white">
+              {holding.marketPrice === null ? '--' : formatCurrency(holding.marketPrice, holding.currency)}
+            </div>
             <div className="text-sm font-medium text-green-600 dark:text-green-400">+1.25 (+0.84%)</div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <Metric label="Market Value" value={formatCurrency(holding.marketValue)} />
+        <Metric label="Market Value" value={holding.marketValue === null ? '--' : formatCurrency(holding.marketValue, holding.currency)} />
         <Metric label="Holding Shares" value={holding.quantity.toString()} />
-        <Metric label="Avg Cost" value={formatCurrency(holding.averageCost)} />
+        <Metric label="Avg Cost" value={holding.avgCost === null ? '--' : formatCurrency(holding.avgCost, holding.currency)} />
         <CardShell className="p-4">
           <p className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">Unrealized P/L</p>
-          <ProfitLossNumber amount={holding.unrealizedPnl} percentage={holding.unrealizedPnlPercent} className="text-xl font-bold" />
+          {holding.unrealizedPnl === null ? (
+            <p className="text-xl font-bold text-neutral-400">--</p>
+          ) : (
+            <ProfitLossNumber
+              amount={holding.unrealizedPnl}
+              percentage={holding.unrealizedReturnRate === null ? undefined : holding.unrealizedReturnRate * 100}
+              className="text-xl font-bold"
+            />
+          )}
         </CardShell>
       </div>
 

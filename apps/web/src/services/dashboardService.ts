@@ -12,7 +12,7 @@ import type {
   ReturnBreakdownItem,
 } from '@/types';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4100';
 
 const allocationColors = [
   '#10b981',
@@ -53,13 +53,17 @@ function nullablePositive(value: number | null) {
 
 function buildStats(summary: DashboardSummaryApiDto): DashboardStat[] {
   const fxSubtitle = currencySubtitle(summary);
+  const isMarginCash = summary.cashBalance < 0;
 
   return [
     {
       label: 'Total Assets 总资产',
       value: summary.totalAssets,
       currency: 'USD',
-      subtitle: fxSubtitle ?? marketSubtitle(summary.totalAssets),
+      subtitle: '股票市值 + 现金余额（含融资负现金）',
+      tooltip:
+        fxSubtitle ??
+        'Total assets = stock market value + cash balance. Negative cash is margin borrowing.',
     },
     {
       label: 'Stock Market Value 股票市值',
@@ -68,10 +72,17 @@ function buildStats(summary: DashboardSummaryApiDto): DashboardStat[] {
       subtitle: marketSubtitle(summary.stockMarketValue),
     },
     {
-      label: 'Cash Balance 现金余额',
+      label: isMarginCash
+        ? 'Margin Loan / Cash Balance 融资负债'
+        : 'Cash Balance 现金余额',
       value: summary.cashBalance,
       currency: 'USD',
-      subtitle: fxSubtitle,
+      positive: isMarginCash ? false : undefined,
+      subtitle: isMarginCash
+        ? '负数表示融资借款已计入总资产'
+        : fxSubtitle,
+      tooltip:
+        'Cash balance is included in total assets. Negative cash reduces total assets.',
     },
     {
       label: 'Net Deposit 净入金',
@@ -91,7 +102,12 @@ function buildStats(summary: DashboardSummaryApiDto): DashboardStat[] {
       value: summary.returnRate === null ? null : summary.returnRate * 100,
       percent: true,
       positive: nullablePositive(summary.returnRate),
-      subtitle: summary.returnRate === null ? '净入金为 0 或行情缺失' : '简化收益率，非 TWR/MWR',
+      subtitle:
+        summary.returnRate === null
+          ? '净入金为 0 或行情缺失'
+          : '简化收益率，非 TWR/MWR，仅作参考',
+      tooltip:
+        'Current formula is total return divided by net deposit. It is not time-weighted or money-weighted return.',
     },
     {
       label: 'Realized P/L 已实现盈亏',
@@ -159,6 +175,11 @@ function mapAssetTrend(assetTrend: AssetTrendPointApiDto[]) {
   return assetTrend.map((point) => ({
     date: point.month,
     value: point.totalAssets,
+    netDeposit: point.netDeposit,
+    stockMarketValue: point.stockMarketValue,
+    cashBalance: point.cashBalance,
+    debug: point.debug,
+    warnings: point.warnings,
   }));
 }
 
@@ -177,8 +198,10 @@ function mapDashboardData(
   realizedPnlBySymbol: RealizedPnlBySymbolApiDto[],
   recentTrades: RecentTradeApiDto[],
 ): DashboardData {
+  const assetTrendWarnings = assetTrend.flatMap((point) => point.warnings ?? []);
+
   return {
-    warnings: summary.warnings ?? [],
+    warnings: [...(summary.warnings ?? []), ...assetTrendWarnings],
     stats: buildStats(summary),
     performance: mapAssetTrend(assetTrend),
     allocation: mapAllocation(allocation),
