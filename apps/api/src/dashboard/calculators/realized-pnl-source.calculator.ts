@@ -11,11 +11,18 @@ function parseRawNumber(value: unknown) {
   }
 
   const normalized = String(value).replace(/,/g, '');
-  const parsed = new Decimal(normalized || 0);
+  let parsed: Decimal;
+
+  try {
+    parsed = new Decimal(normalized || 0);
+  } catch {
+    return null;
+  }
+
   return parsed.isFinite() ? parsed : null;
 }
 
-function findIbkrRealizedPnl(rawData: unknown) {
+export function findIbkrRealizedPnl(rawData: unknown) {
   if (typeof rawData !== 'object' || rawData === null) {
     return null;
   }
@@ -89,4 +96,3 @@ export function calculateRealizedPnlSource(
     ],
   };
 }
-

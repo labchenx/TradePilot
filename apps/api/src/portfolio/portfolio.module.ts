@@ -4,6 +4,7 @@ import { MonthlySnapshotService } from './monthly-snapshot.service';
 import { MonthlyTrendService } from './monthly-trend.service';
 import { PortfolioController } from './portfolio.controller';
 import { PortfolioPositionsService } from './portfolio-positions.service';
+import { PortfolioTransactionsService } from './portfolio-transactions.service';
 
 @Module({
   imports: [MarketDataModule],
@@ -12,11 +13,13 @@ import { PortfolioPositionsService } from './portfolio-positions.service';
     MonthlySnapshotService,
     MonthlyTrendService,
     PortfolioPositionsService,
+    PortfolioTransactionsService,
   ],
   exports: [
     MonthlySnapshotService,
     MonthlyTrendService,
     PortfolioPositionsService,
+    PortfolioTransactionsService,
   ],
 })
 export class PortfolioModule {}
