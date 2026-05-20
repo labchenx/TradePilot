@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { CashFlowType, Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { MonthlySnapshotService } from '../portfolio/monthly-snapshot.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -72,6 +72,29 @@ function eventRowToResponse(
     grossAmount: event.grossAmount.toNumber(),
     commission: event.commission.toNumber(),
     netAmount: event.netAmount.toNumber(),
+  };
+}
+
+function transactionEventToCashFlow(
+  row: Prisma.TransactionEventCreateManyInput,
+): Prisma.CashFlowCreateManyInput | null {
+  if (row.eventType !== 'DEPOSIT' && row.eventType !== 'WITHDRAWAL') {
+    return null;
+  }
+
+  return {
+    accountId: row.accountId,
+    type:
+      row.eventType === 'DEPOSIT'
+        ? CashFlowType.DEPOSIT
+        : CashFlowType.WITHDRAWAL,
+    amount: row.netAmount,
+    currency: row.currency ?? 'USD',
+    flowDate: row.tradeDate,
+    source: `${row.sourceSection} · ${row.sourceFileName}`,
+    sourceHash: row.sourceEventHash ?? undefined,
+    rawData: row.rawData,
+    remark: row.description,
   };
 }
 
@@ -243,6 +266,16 @@ export class ImportsService {
               skipDuplicates: true,
             })
           : { count: 0 };
+      const cashFlowRows = rowsToCreate
+        .map(transactionEventToCashFlow)
+        .filter((row): row is Prisma.CashFlowCreateManyInput => row !== null);
+
+      if (cashFlowRows.length > 0) {
+        await tx.cashFlow.createMany({
+          data: cashFlowRows,
+          skipDuplicates: true,
+        });
+      }
 
       const updatedImportFile = await tx.importFile.update({
         where: { id: importFileId },

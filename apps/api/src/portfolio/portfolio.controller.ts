@@ -3,6 +3,7 @@ import { AssetTrendRange } from '../dashboard/dto/asset-trend.dto';
 import { ListPortfolioTransactionsDto } from './dto/list-portfolio-transactions.dto';
 import { MonthlySnapshotService } from './monthly-snapshot.service';
 import { MonthlyTrendService } from './monthly-trend.service';
+import { PortfolioCashFlowsService } from './portfolio-cash-flows.service';
 import { PortfolioPositionsService } from './portfolio-positions.service';
 import { PortfolioTransactionsService } from './portfolio-transactions.service';
 
@@ -18,6 +19,7 @@ export class PortfolioController {
     private readonly monthlySnapshotService: MonthlySnapshotService,
     private readonly portfolioPositionsService: PortfolioPositionsService,
     private readonly portfolioTransactionsService: PortfolioTransactionsService,
+    private readonly portfolioCashFlowsService: PortfolioCashFlowsService,
   ) {}
 
   @Get('positions')
@@ -28,6 +30,11 @@ export class PortfolioController {
   @Get('transactions')
   getTransactions(@Query() query: ListPortfolioTransactionsDto) {
     return this.portfolioTransactionsService.getTransactions(query);
+  }
+
+  @Get('cash-flows')
+  getCashFlows() {
+    return this.portfolioCashFlowsService.getCashFlows();
   }
 
   @Get('monthly-trend')

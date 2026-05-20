@@ -43,6 +43,11 @@ enum TradeSide {
   SELL
 }
 
+enum CashFlowType {
+  DEPOSIT
+  WITHDRAWAL
+}
+
 model ImportFile {
   id                String              @id @default(cuid())
   filename          String
@@ -94,6 +99,25 @@ model TransactionEvent {
   @@index([tradeDate])
   @@index([eventType])
   @@map("transaction_events")
+}
+
+model CashFlow {
+  id           String       @id @default(cuid())
+  accountId    String?
+  type         CashFlowType
+  amount       Decimal      @db.Decimal(30, 12)
+  currency     String
+  flowDate     DateTime     @db.Date
+  source       String?
+  sourceHash   String?      @unique
+  rawData      Json?
+  remark       String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([flowDate])
+  @@index([type])
+  @@map("cash_flows")
 }
 
 model MarketQuoteSnapshot {
