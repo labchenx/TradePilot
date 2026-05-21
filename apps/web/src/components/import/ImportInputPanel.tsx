@@ -1,42 +1,157 @@
-import { ChevronRight, UploadCloud } from 'lucide-react';
-import { Button } from '@/components/common';
+import { useRef, useState } from 'react';
+import { FileText, Trash2, UploadCloud } from 'lucide-react';
+import { Button, Tag } from '@/components/common';
+import { cn } from '@/utils';
 
 interface ImportInputPanelProps {
-  emailContent: string;
-  onEmailContentChange: (value: string) => void;
+  files: File[];
+  disabled?: boolean;
+  onFilesChange: (files: File[]) => void;
   onParse: () => void;
 }
 
-export function ImportInputPanel({ emailContent, onEmailContentChange, onParse }: ImportInputPanelProps) {
+function formatFileSize(size: number) {
+  if (size >= 1024 * 1024) {
+    return `${(size / 1024 / 1024).toFixed(2)} MB`;
+  }
+
+  return `${(size / 1024).toFixed(1)} KB`;
+}
+
+export function ImportInputPanel({
+  files,
+  disabled = false,
+  onFilesChange,
+  onParse,
+}: ImportInputPanelProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const addFiles = (fileList: FileList | null) => {
+    if (!fileList) return;
+
+    const nextFiles = Array.from(fileList).filter((file) =>
+      file.name.toLowerCase().endsWith('.csv'),
+    );
+    const merged = [...files];
+
+    nextFiles.forEach((file) => {
+      const exists = merged.some(
+        (item) => item.name === file.name && item.size === file.size,
+      );
+      if (!exists) {
+        merged.push(file);
+      }
+    });
+
+    onFilesChange(merged);
+  };
+
   return (
-    <div className="flex flex-col items-center p-6 md:p-8">
-      <div className="mb-6 w-full max-w-3xl cursor-pointer rounded-xl border-2 border-dashed border-neutral-300 p-8 text-center transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800/50">
-        <UploadCloud className="mx-auto mb-4 h-12 w-12 text-blue-500 dark:text-blue-400" />
-        <h3 className="text-lg font-semibold text-neutral-900 dark:text-white">Upload .txt or .html email file</h3>
+    <div className="space-y-5 p-6 md:p-8">
+      <div
+        onDragOver={(event) => {
+          event.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setIsDragging(false);
+          addFiles(event.dataTransfer.files);
+        }}
+        onClick={() => inputRef.current?.click()}
+        className={cn(
+          'flex cursor-pointer flex-col items-center rounded-lg border-2 border-dashed p-8 text-center transition-colors',
+          isDragging
+            ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20'
+            : 'border-neutral-300 bg-neutral-50/60 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900/40 dark:hover:bg-neutral-800/60',
+        )}
+      >
+        <UploadCloud className="mb-4 h-11 w-11 text-blue-500" />
+        <h3 className="text-lg font-semibold text-neutral-900 dark:text-white">
+          IBKR Activity Statement CSV
+        </h3>
         <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
-          Drag and drop your IBKR Trade Confirmation email file here, or click to browse.
+          支持单个或多个 .csv 文件
         </p>
-      </div>
-
-      <div className="mb-6 flex w-full max-w-3xl items-center gap-4 text-neutral-400 dark:text-neutral-600">
-        <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-800" />
-        <span className="text-sm font-medium tracking-wider uppercase">OR PASTE CONTENT</span>
-        <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-800" />
-      </div>
-
-      <div className="w-full max-w-3xl">
-        <textarea
-          value={emailContent}
-          onChange={(event) => onEmailContentChange(event.target.value)}
-          placeholder="Paste IBKR email content here..."
-          className="h-48 w-full resize-none rounded-xl border border-neutral-300 bg-transparent p-4 font-mono text-sm text-neutral-900 placeholder:font-sans placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus-visible:ring-blue-400"
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv,text/csv"
+          multiple
+          className="hidden"
+          onChange={(event) => addFiles(event.target.files)}
         />
-        <div className="mt-6 flex justify-end">
-          <Button onClick={onParse} size="lg" disabled={!emailContent && emailContent.length < 10}>
-            Parse Preview
-            <ChevronRight className="ml-2 h-4 w-4" />
+      </div>
+
+      <div className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+          <div>
+            <h3 className="font-semibold text-neutral-900 dark:text-white">
+              文件列表
+            </h3>
+            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+              {files.length} 个文件待解析
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={files.length === 0 || disabled}
+            onClick={() => onFilesChange([])}
+          >
+            清空列表
           </Button>
         </div>
+
+        {files.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">
+            暂无文件
+          </div>
+        ) : (
+          <div className="divide-y divide-neutral-200 dark:divide-neutral-800">
+            {files.map((file) => (
+              <div
+                key={`${file.name}-${file.size}`}
+                className="flex items-center justify-between gap-4 px-5 py-4"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <FileText className="h-5 w-5 shrink-0 text-blue-500" />
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-neutral-900 dark:text-white">
+                      {file.name}
+                    </p>
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                      {formatFileSize(file.size)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Tag color="blue">CSV</Tag>
+                  <button
+                    type="button"
+                    className="rounded-md p-2 text-neutral-400 hover:bg-neutral-100 hover:text-red-600 dark:hover:bg-neutral-800"
+                    disabled={disabled}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onFilesChange(files.filter((item) => item !== file));
+                    }}
+                    aria-label={`Remove ${file.name}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end">
+        <Button disabled={files.length === 0 || disabled} onClick={onParse}>
+          解析预览
+        </Button>
       </div>
     </div>
   );

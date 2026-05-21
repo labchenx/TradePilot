@@ -1,8 +1,15 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsArray, IsOptional, IsString } from 'class-validator';
 
 export class ConfirmImportDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  importFileId!: string;
-}
+  importFileId?: string;
 
+  @IsOptional()
+  @IsString()
+  jobPreviewId?: string;
+
+  @IsOptional()
+  @IsArray()
+  records?: unknown[];
+}

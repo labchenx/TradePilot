@@ -27,7 +27,7 @@ export function useTradingBehavior() {
       const message =
         requestError instanceof Error
           ? requestError.message
-          : 'Trading Behavior data request failed.';
+          : '交易行为数据请求失败。';
       setError(message);
     } finally {
       setLoading(false);

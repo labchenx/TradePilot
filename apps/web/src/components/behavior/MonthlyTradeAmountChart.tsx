@@ -57,11 +57,11 @@ export function MonthlyTradeAmountChart({
               />
               <Tooltip formatter={tooltipFormatter} />
               <Legend />
-              <Bar dataKey="buyAmount" name="Buy Amount" fill="#2563eb" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="sellAmount" name="Sell Amount" fill="#f97316" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="buyAmount" name="买入金额" fill="#2563eb" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="sellAmount" name="卖出金额" fill="#f97316" radius={[4, 4, 0, 0]} />
               <Line
                 dataKey="netBuyAmount"
-                name="Net Buy Amount"
+                name="净买入金额"
                 stroke="#111827"
                 strokeWidth={2}
                 dot={{ r: 3 }}

@@ -76,7 +76,7 @@ export function BehaviorFrequencyChart({
               />
               <Bar
                 dataKey="totalCount"
-                name="Total"
+                name="总次数"
                 fill="#64748b"
                 radius={[4, 4, 0, 0]}
               />

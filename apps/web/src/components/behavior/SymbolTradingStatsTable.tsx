@@ -25,14 +25,14 @@ export function SymbolTradingStatsTable({
         <table className="w-full text-left text-sm">
           <thead className="bg-neutral-50 text-xs uppercase text-neutral-500 dark:bg-neutral-900/50 dark:text-neutral-400">
             <tr>
-              <th className="px-6 py-4 font-medium">Symbol</th>
-              <th className="px-6 py-4 text-right font-medium">Trades</th>
+              <th className="px-6 py-4 font-medium">symbol</th>
+              <th className="px-6 py-4 text-right font-medium">交易次数</th>
               <th className="px-6 py-4 text-right font-medium">BUY</th>
               <th className="px-6 py-4 text-right font-medium">SELL</th>
-              <th className="px-6 py-4 text-right font-medium">Buy Amount</th>
-              <th className="px-6 py-4 text-right font-medium">Sell Amount</th>
-              <th className="px-6 py-4 text-right font-medium">Commission</th>
-              <th className="px-6 py-4 text-right font-medium">Realized P/L</th>
+              <th className="px-6 py-4 text-right font-medium">买入金额</th>
+              <th className="px-6 py-4 text-right font-medium">卖出金额</th>
+              <th className="px-6 py-4 text-right font-medium">手续费</th>
+              <th className="px-6 py-4 text-right font-medium">已实现盈亏</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">

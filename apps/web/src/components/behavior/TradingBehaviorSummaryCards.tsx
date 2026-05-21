@@ -33,36 +33,36 @@ export function TradingBehaviorSummaryCards({
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <StatCard
-        title="Total Trades"
+        title="总交易次数"
         value={loading || !summary ? placeholder : formatNumber(summary.totalTrades)}
-        subValue="总交易次数"
+        subValue="BUY + SELL"
       />
       <StatCard
-        title="Buy Trades"
+        title="买入次数"
         value={loading || !summary ? placeholder : formatNumber(summary.buyTrades)}
-        subValue="买入次数"
+        subValue="BUY 交易"
       />
       <StatCard
-        title="Sell Trades"
+        title="卖出次数"
         value={loading || !summary ? placeholder : formatNumber(summary.sellTrades)}
-        subValue="卖出次数"
+        subValue="SELL 交易"
       />
       <StatCard
-        title="Traded Symbols"
+        title="交易股票数"
         value={
           loading || !summary ? placeholder : formatNumber(summary.tradedSymbolCount)
         }
-        subValue="交易股票数"
+        subValue="去重 symbol"
       />
       <StatCard
-        title="Total Commission"
+        title="总手续费"
         value={
           loading || !summary ? placeholder : formatCurrency(summary.totalCommission)
         }
-        subValue="总手续费"
+        subValue="按绝对值统计"
       />
       <StatCard
-        title="Realized P/L"
+        title="已实现盈亏"
         value={
           loading || !summary ? (
             placeholder
@@ -72,14 +72,14 @@ export function TradingBehaviorSummaryCards({
         }
       />
       <StatCard
-        title="Avg Trade Amount"
+        title="平均单笔交易金额"
         value={
           loading || !summary ? placeholder : nullableCurrency(summary.avgTradeAmount)
         }
-        subValue="平均单笔交易金额"
+        subValue="按成交金额统计"
       />
       <StatCard
-        title="Win Rate"
+        title="胜率"
         value={loading || !summary ? placeholder : formatRate(summary.winRate)}
         subValue="SELL realizedPnl > 0"
       />

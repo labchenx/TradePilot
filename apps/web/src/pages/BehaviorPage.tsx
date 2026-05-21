@@ -27,7 +27,7 @@ export function BehaviorPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <PageTitle
-          title="Trading Behavior 交易行为"
+          title="交易行为分析"
           description="从数据库中的 BUY / SELL 交易分析交易频率、买卖金额、活跃股票、手续费、胜率和已实现盈亏贡献"
         />
         <Button

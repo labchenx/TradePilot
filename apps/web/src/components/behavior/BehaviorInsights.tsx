@@ -17,7 +17,7 @@ const icons = {
 export function BehaviorInsights({ insights }: BehaviorInsightsProps) {
   return (
     <CardShell className="p-5">
-      <h3 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-white">Review Notes 复盘提示</h3>
+      <h3 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-white">复盘提示</h3>
       <div className="space-y-4">
         {insights.map((insight) => {
           const Icon = icons[insight.tone];
@@ -37,4 +37,3 @@ export function BehaviorInsights({ insights }: BehaviorInsightsProps) {
     </CardShell>
   );
 }
-

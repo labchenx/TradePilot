@@ -8,6 +8,7 @@ function getPageTitle(pathname: string) {
     item.path === '/' ? pathname === '/' : pathname.startsWith(item.path),
   );
 
+  if (pathname.startsWith('/trading-behavior')) return '交易行为分析';
   if (pathname.startsWith('/stock/')) return 'Stock Detail / 个股详情';
   if (pathname === '/login') return 'Login / 登录';
   return currentNav ? `${currentNav.label} / ${currentNav.zhLabel}` : 'TradePilot';
@@ -41,4 +42,3 @@ export function TopBar() {
     </header>
   );
 }
-

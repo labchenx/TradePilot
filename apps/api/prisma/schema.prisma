@@ -17,6 +17,27 @@ enum ImportFileStatus {
   FAILED
 }
 
+enum ImportJobStatus {
+  PREVIEWED
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
+enum ImportRecordType {
+  TRADE
+  CASH_FLOW
+  CORPORATE_ACTION
+  UNRECOGNIZED
+}
+
+enum ImportRecordStatus {
+  SUCCESS
+  DUPLICATE
+  UPDATED
+  FAILED
+}
+
 enum IbkrEventType {
   TRADE_BUY
   TRADE_SELL
@@ -63,6 +84,48 @@ model ImportFile {
   confirmedAt       DateTime?
 
   @@map("import_files")
+}
+
+model ImportJob {
+  id             String             @id @default(cuid())
+  source         ImportSource        @default(IBKR_CSV)
+  status         ImportJobStatus     @default(PREVIEWED)
+  fileNames      Json
+  summary        Json
+  previewRecords Json?
+  startedAt      DateTime            @default(now())
+  finishedAt     DateTime?
+  totalCount     Int                 @default(0)
+  successCount   Int                 @default(0)
+  duplicateCount Int                 @default(0)
+  updateCount    Int                 @default(0)
+  failedCount    Int                 @default(0)
+  errorMessage   String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  records        ImportRecord[]
+
+  @@index([createdAt])
+  @@index([status])
+  @@map("import_jobs")
+}
+
+model ImportRecord {
+  id             String             @id @default(cuid())
+  importJobId    String
+  importJob      ImportJob          @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  recordType     ImportRecordType
+  sourceHash     String?
+  status         ImportRecordStatus
+  rawData        Json?
+  normalizedData Json?
+  errorMessage   String?
+  createdAt      DateTime           @default(now())
+
+  @@index([importJobId])
+  @@index([sourceHash])
+  @@index([recordType])
+  @@map("import_records")
 }
 
 model TransactionEvent {

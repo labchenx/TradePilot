@@ -9,7 +9,7 @@ async function requestApi<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`);
 
   if (!response.ok) {
-    throw new Error(`Trading Behavior API request failed: ${response.status}`);
+    throw new Error(`交易行为 API 请求失败：${response.status}`);
   }
 
   return response.json() as Promise<T>;

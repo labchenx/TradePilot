@@ -75,7 +75,7 @@ export function TradingBehaviorFilters({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
           <label className="block min-w-60">
             <span className="mb-2 block text-xs font-medium uppercase text-neutral-500 dark:text-neutral-400">
-              Symbol
+              股票代码
             </span>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-neutral-400" />

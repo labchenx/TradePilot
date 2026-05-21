@@ -1,5 +1,4 @@
-import { ConflictException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { BadRequestException } from '@nestjs/common';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { ImportsService } from './imports.service';
@@ -11,268 +10,136 @@ function createFileMock(filename: string): Express.Multer.File {
   return {
     originalname: filename,
     buffer,
+    size: buffer.length,
   } as Express.Multer.File;
 }
 
-function createPrismaMock() {
-  const importFiles: Record<string, unknown>[] = [];
-  const transactionEvents: Record<string, unknown>[] = [];
-
-  const prisma: {
-    importFile: {
-      findUnique: jest.Mock;
-      create: jest.Mock;
-      update: jest.Mock;
-    };
-    transactionEvent: {
-      createMany: jest.Mock;
-      findMany: jest.Mock;
-    };
-    $transaction: jest.Mock;
-    __state: {
-      importFiles: Record<string, unknown>[];
-      transactionEvents: Record<string, unknown>[];
-    };
-  } = {
-    importFile: {
-      findUnique: jest.fn(
-        ({
-          where,
-          include,
-        }: {
-          where: Record<string, string>;
-          include?: { transactionEvents?: unknown };
-        }) => {
-        if (where.fileHash) {
-          return (
-            importFiles.find((item) => item.fileHash === where.fileHash) ??
-            null
-          );
-        }
-
-        const record = importFiles.find((item) => item.id === where.id);
-        if (!record) {
-          return null;
-        }
-
-        if (include?.transactionEvents) {
-          return {
-            ...record,
-            transactionEvents: transactionEvents.filter(
-              (event) => event.importFileId === where.id,
-            ),
-          };
-        }
-
-        return record;
-      },
-      ),
-      create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
-        const record = {
-          id: `import_${importFiles.length + 1}`,
-          createdAt: new Date('2026-05-12T00:00:00.000Z'),
-          confirmedAt: null,
-          ...data,
-        };
-        importFiles.push(record);
-        return record;
-      }),
-      update: jest.fn(
-        ({
-          where,
-          data,
-          include,
-        }: {
-          where: { id: string };
-          data: Record<string, unknown>;
-          include?: { transactionEvents?: unknown };
-        }) => {
-          const index = importFiles.findIndex((item) => item.id === where.id);
-          importFiles[index] = {
-            ...importFiles[index],
-            ...data,
-          };
-
-          if (include?.transactionEvents) {
-            return {
-              ...importFiles[index],
-              transactionEvents: transactionEvents.filter(
-                (event) => event.importFileId === where.id,
-              ),
-            };
-          }
-
-          return importFiles[index];
-        },
-      ),
+function createService() {
+  const prisma = {
+    importJob: {
+      create: jest.fn(({ data }) => ({
+        id: 'job_preview_1',
+        ...data,
+      })),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      delete: jest.fn(),
     },
-    transactionEvent: {
-      findMany: jest.fn(
-        ({
-          where,
-        }: {
-          where?: { sourceEventHash?: { in?: string[] } };
-        }) => {
-          const hashes = where?.sourceEventHash?.in;
-          if (!hashes) {
-            return transactionEvents;
-          }
-
-          return transactionEvents.filter((event) =>
-            hashes.includes(event.sourceEventHash as string),
-          );
-        },
-      ),
-      createMany: jest.fn(({ data }: { data: Record<string, unknown>[] }) => {
-        data.forEach((row) => {
-          transactionEvents.push({
-            id: `event_${transactionEvents.length + 1}`,
-            createdAt: new Date('2026-05-12T00:00:00.000Z'),
-            ...row,
-          });
-        });
-
-        return { count: data.length };
-      }),
-    },
-    $transaction: jest.fn(),
-    __state: {
-      importFiles,
-      transactionEvents,
+    importFile: {
+      findUnique: jest.fn(),
     },
   };
-
-  prisma.$transaction.mockImplementation(
-    (callback: (tx: unknown) => unknown) => callback(prisma),
-  );
-
-  return prisma;
-}
-
-function createMonthlySnapshotServiceMock() {
-  return {
-    regenerateSnapshotsFromMonth: jest.fn(async () => ({
-      generatedMonths: 0,
+  const importDedupService = {
+    markPreviewRecords: jest.fn(async (records) => records),
+  };
+  const importConfirmService = {
+    confirm: jest.fn(async () => ({
+      importJobId: 'job_preview_1',
+      summary: {
+        totalRecords: 1,
+        insertedRecords: 1,
+        duplicateRecords: 0,
+        updatedRecords: 0,
+        failedRecords: 0,
+      },
+      records: [],
       warnings: [],
     })),
+  };
+
+  return {
+    service: new ImportsService(
+      prisma as never,
+      importDedupService as never,
+      importConfirmService as never,
+    ),
+    prisma,
+    importDedupService,
+    importConfirmService,
   };
 }
 
 describe('ImportsService', () => {
-  it('previews a real IBKR CSV and creates an import file', async () => {
-    const prisma = createPrismaMock();
-    const service = new ImportsService(
-      prisma as never,
-      createMonthlySnapshotServiceMock() as never,
-    );
+  it('previews one real IBKR CSV without writing business rows', async () => {
+    const { service, prisma, importDedupService } = createService();
 
-    const result = await service.preview(
-      createFileMock('U18666165_20240819_20250819.csv'),
-    );
+    const result = await service.previewIbkrCsv([
+      createFileMock('U18666165_20240819_20250516.csv'),
+    ]);
 
-    expect(result.importFileId).toBe('import_1');
-    expect(result.summary.parsedRows).toBeGreaterThan(100);
-    expect(result.summary.netDeposit).toBe(13019.542272);
-    expect(prisma.__state.importFiles).toHaveLength(1);
-  });
-
-  it('confirms previewed events and blocks repeated confirm', async () => {
-    const prisma = createPrismaMock();
-    const monthlySnapshotService = createMonthlySnapshotServiceMock();
-    const service = new ImportsService(
-      prisma as never,
-      monthlySnapshotService as never,
-    );
-
-    const preview = await service.preview(
-      createFileMock('U18666165_20250819_20260513.csv'),
-    );
-    const confirm = await service.confirm(preview.importFileId);
-
-    expect(confirm.status).toBe('CONFIRMED');
-    expect(confirm.importedCount).toBe(preview.parsedEvents.length);
-    expect(confirm.skippedDuplicateCount).toBe(0);
-    expect(prisma.__state.transactionEvents).toHaveLength(
-      preview.parsedEvents.length,
-    );
-    expect(monthlySnapshotService.regenerateSnapshotsFromMonth).toHaveBeenCalledWith(
-      'ALL',
-      expect.stringMatching(/^\d{4}-\d{2}$/),
-    );
-
-    await expect(service.confirm(preview.importFileId)).rejects.toBeInstanceOf(
-      ConflictException,
+    expect(result.jobPreviewId).toBe('job_preview_1');
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]).toMatchObject({ status: 'PARSED' });
+    expect(result.records.length).toBeGreaterThan(100);
+    expect(result.summary.totalRecords).toBe(result.records.length);
+    expect(result.summary.newRecords).toBe(result.records.length);
+    expect(
+      result.records[0].data.sourceFileSummary?.cashReport?.cashBalance,
+    ).toBeCloseTo(-1536.032970827, 6);
+    expect(importDedupService.markPreviewRecords).toHaveBeenCalled();
+    expect(prisma.importJob.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'PREVIEWED',
+          totalCount: result.records.length,
+        }),
+      }),
     );
   });
 
-  it('blocks previewing a file that was already confirmed', async () => {
-    const prisma = createPrismaMock();
-    const service = new ImportsService(
-      prisma as never,
-      createMonthlySnapshotServiceMock() as never,
-    );
-    const file = createFileMock('U18666165_20250819_20260513.csv');
+  it('supports multiple CSV files in one preview', async () => {
+    const { service } = createService();
 
-    const preview = await service.preview(file);
-    await service.confirm(preview.importFileId);
+    const result = await service.previewIbkrCsv([
+      createFileMock('U18666165_20240819_20250516.csv'),
+      createFileMock('U18666165_20250519_20260518.csv'),
+    ]);
 
-    await expect(service.preview(file)).rejects.toBeInstanceOf(
-      ConflictException,
+    expect(result.files).toHaveLength(2);
+    expect(result.summary.totalRecords).toBe(result.records.length);
+    expect(result.summary.tradeRecords).toBeGreaterThan(0);
+    expect(result.summary.cashFlowRecords).toBeGreaterThan(0);
+  });
+
+  it('rejects non-CSV uploads before parsing', async () => {
+    const { service } = createService();
+    const badFile = {
+      originalname: 'statement.txt',
+      buffer: Buffer.from('not,csv'),
+      size: 7,
+    } as Express.Multer.File;
+
+    await expect(service.previewIbkrCsv([badFile])).rejects.toBeInstanceOf(
+      BadRequestException,
     );
   });
 
-  it('skips overlapping events across confirmed CSV files', async () => {
-    const prisma = createPrismaMock();
-    const service = new ImportsService(
-      prisma as never,
-      createMonthlySnapshotServiceMock() as never,
-    );
+  it('delegates confirmation to the confirm service', async () => {
+    const { service, importConfirmService } = createService();
 
-    const firstPreview = await service.preview(
-      createFileMock('U18666165_20240819_20250819.csv'),
-    );
-    const firstConfirm = await service.confirm(firstPreview.importFileId);
+    await service.confirmIbkrCsv({ jobPreviewId: 'job_preview_1' });
 
-    const secondPreview = await service.preview(
-      createFileMock('U18666165_20250819_20260513.csv'),
+    expect(importConfirmService.confirm).toHaveBeenCalledWith(
+      'job_preview_1',
+      undefined,
     );
-    const secondConfirm = await service.confirm(secondPreview.importFileId);
-
-    expect(firstConfirm.importedCount).toBe(firstPreview.parsedEvents.length);
-    expect(secondConfirm.importedCount).toBeLessThan(
-      secondPreview.parsedEvents.length,
-    );
-    expect(secondConfirm.skippedDuplicateCount).toBeGreaterThan(0);
-    expect(prisma.__state.transactionEvents).toHaveLength(
-      firstConfirm.importedCount + secondConfirm.importedCount,
-    );
-
-    const eventHashes = prisma.__state.transactionEvents.map(
-      (event) => event.sourceEventHash,
-    );
-    expect(new Set(eventHashes).size).toBe(eventHashes.length);
   });
 
-  it('returns import details with transaction events after confirm', async () => {
-    const prisma = createPrismaMock();
-    const service = new ImportsService(
-      prisma as never,
-      createMonthlySnapshotServiceMock() as never,
-    );
+  it('deletes one import history job without deleting business rows', async () => {
+    const { service, prisma } = createService();
+    prisma.importJob.findUnique.mockResolvedValueOnce({
+      id: 'job_1',
+      _count: { records: 3 },
+    });
+    prisma.importJob.delete.mockResolvedValueOnce({ id: 'job_1' });
 
-    const preview = await service.preview(
-      createFileMock('U18666165_20250819_20260513.csv'),
-    );
-    await service.confirm(preview.importFileId);
-
-    const detail = await service.findOne(preview.importFileId);
-
-    expect(detail.status).toBe('CONFIRMED');
-    expect(detail.transactionEvents).toHaveLength(preview.parsedEvents.length);
-    expect(detail.transactionEvents[0]).toMatchObject({
-      sourceSection: '交易',
-      eventType: 'TRADE_SELL',
-      symbol: 'AAPL',
+    await expect(service.deleteHistory('job_1')).resolves.toEqual({
+      success: true,
+      deletedImportJobId: 'job_1',
+      deletedRecordCount: 3,
+    });
+    expect(prisma.importJob.delete).toHaveBeenCalledWith({
+      where: { id: 'job_1' },
     });
   });
 });

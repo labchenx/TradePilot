@@ -1,10 +1,10 @@
 import { CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { Button } from '@/components/common';
-import type { ImportResult } from '@/types';
+import type { ImportConfirmResponse } from '@/types';
 
 interface ImportResultCardProps {
-  result: ImportResult;
+  result: ImportConfirmResponse;
   onImportAnother: () => void;
 }
 
@@ -12,43 +12,55 @@ export function ImportResultCard({ result, onImportAnother }: ImportResultCardPr
   const navigate = useNavigate();
 
   return (
-    <div className="flex flex-col items-center justify-center p-12 text-center">
-      <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-        <CheckCircle2 className="h-10 w-10 text-green-600 dark:text-green-400" />
+    <div className="flex flex-col items-center justify-center p-10 text-center">
+      <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+        <CheckCircle2 className="h-9 w-9 text-green-600 dark:text-green-400" />
       </div>
-      <h3 className="mb-2 text-2xl font-bold text-neutral-900 dark:text-white">Import Successful!</h3>
+      <h3 className="mb-2 text-2xl font-bold text-neutral-900 dark:text-white">
+        导入完成
+      </h3>
       <p className="mb-8 max-w-md text-neutral-500 dark:text-neutral-400">
-        The trade records have been parsed with the static mock flow. Errors are skipped in this preview UI.
+        ImportJob: {result.importJobId}
       </p>
-      <div className="mb-8 grid w-full max-w-2xl grid-cols-2 gap-4 md:grid-cols-4">
-        <ResultTile label="Total Records" value={result.totalRecords} />
-        <ResultTile label="Successfully Imported" value={result.successCount} tone="green" />
-        <ResultTile label="Duplicates Skipped" value={result.duplicateCount} tone="yellow" />
-        <ResultTile label="Failed Records" value={result.failedCount} tone="red" />
+      <div className="mb-8 grid w-full max-w-3xl grid-cols-2 gap-4 md:grid-cols-5">
+        <ResultTile label="Total" value={result.summary.totalRecords} />
+        <ResultTile label="Inserted" value={result.summary.insertedRecords} tone="green" />
+        <ResultTile label="Duplicate" value={result.summary.duplicateRecords} tone="neutral" />
+        <ResultTile label="Updated" value={result.summary.updatedRecords} tone="yellow" />
+        <ResultTile label="Failed" value={result.summary.failedRecords} tone="red" />
       </div>
-      <div className="flex gap-4">
+      <div className="flex flex-wrap justify-center gap-3">
         <Button variant="outline" onClick={onImportAnother}>
-          Import Another
+          继续导入
         </Button>
-        <Button onClick={() => navigate('/transactions')}>View Trades 交易记录</Button>
+        <Button onClick={() => navigate('/transactions')}>查看交易明细</Button>
       </div>
     </div>
   );
 }
 
-function ResultTile({ label, value, tone = 'neutral' }: { label: string; value: number; tone?: 'neutral' | 'green' | 'yellow' | 'red' }) {
+function ResultTile({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: number;
+  tone?: 'neutral' | 'green' | 'yellow' | 'red';
+}) {
   const styles = {
-    neutral: 'border-neutral-200 bg-neutral-50 text-neutral-900 dark:border-neutral-800 dark:bg-neutral-800/50 dark:text-white',
-    green: 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/50 dark:bg-green-900/10 dark:text-green-400',
-    yellow: 'border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-900/50 dark:bg-yellow-900/10 dark:text-yellow-400',
-    red: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-900/10 dark:text-red-400',
+    neutral: 'text-neutral-900 dark:text-white',
+    green: 'text-green-700 dark:text-green-400',
+    yellow: 'text-yellow-700 dark:text-yellow-400',
+    red: 'text-red-700 dark:text-red-400',
   };
 
   return (
-    <div className={`rounded-lg border p-4 ${styles[tone]}`}>
-      <p className="text-xs font-medium opacity-80">{label}</p>
-      <p className="mt-1 text-2xl font-bold">{value}</p>
+    <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-950/30">
+      <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+        {label}
+      </p>
+      <p className={`mt-1 text-2xl font-bold ${styles[tone]}`}>{value}</p>
     </div>
   );
 }
-

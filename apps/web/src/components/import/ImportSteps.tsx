@@ -4,7 +4,7 @@ interface ImportStepsProps {
   step: number;
 }
 
-const steps = ['Paste Email', 'Preview Parsed Trades', 'Confirm Import', 'Import Result'];
+const steps = ['选择 CSV', '解析预览', '确认导入', '导入结果'];
 
 export function ImportSteps({ step }: ImportStepsProps) {
   return (
@@ -29,4 +29,3 @@ export function ImportSteps({ step }: ImportStepsProps) {
     </div>
   );
 }
-

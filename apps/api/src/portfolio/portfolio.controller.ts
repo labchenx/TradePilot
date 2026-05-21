@@ -6,6 +6,7 @@ import { MonthlySnapshotService } from './monthly-snapshot.service';
 import { MonthlyTrendService } from './monthly-trend.service';
 import { PortfolioAnalyticsService } from './portfolio-analytics.service';
 import { PortfolioCashFlowsService } from './portfolio-cash-flows.service';
+import { PortfolioClearDataService } from './portfolio-clear-data.service';
 import { PortfolioPositionsService } from './portfolio-positions.service';
 import { PortfolioTradingBehaviorService } from './portfolio-trading-behavior.service';
 import { PortfolioTransactionsService } from './portfolio-transactions.service';
@@ -25,6 +26,7 @@ export class PortfolioController {
     private readonly portfolioCashFlowsService: PortfolioCashFlowsService,
     private readonly portfolioAnalyticsService: PortfolioAnalyticsService,
     private readonly portfolioTradingBehaviorService: PortfolioTradingBehaviorService,
+    private readonly portfolioClearDataService: PortfolioClearDataService,
   ) {}
 
   @Get('positions')
@@ -71,16 +73,27 @@ export class PortfolioController {
 
     return this.monthlySnapshotService.generateMonthlySnapshots(body.accountId);
   }
+
+  @Post('clear-data')
+  clearData(@Body() body: { confirmation?: string }) {
+    return this.portfolioClearDataService.clearCurrentUserData(body);
+  }
 }
 
 @Controller('api/portfolio')
 export class PortfolioApiController {
   constructor(
     private readonly portfolioTradingBehaviorService: PortfolioTradingBehaviorService,
+    private readonly portfolioClearDataService: PortfolioClearDataService,
   ) {}
 
   @Get('trading-behavior')
   getTradingBehavior(@Query() query: GetTradingBehaviorDto) {
     return this.portfolioTradingBehaviorService.getTradingBehavior(query);
+  }
+
+  @Post('clear-data')
+  clearData(@Body() body: { confirmation?: string }) {
+    return this.portfolioClearDataService.clearCurrentUserData(body);
   }
 }

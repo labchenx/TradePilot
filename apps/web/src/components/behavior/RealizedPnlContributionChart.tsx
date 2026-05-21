@@ -64,7 +64,7 @@ export function RealizedPnlContributionChart({
                 tickLine={false}
               />
               <Tooltip formatter={tooltipFormatter} />
-              <Bar dataKey="realizedPnl" name="Realized P/L" radius={[0, 4, 4, 0]}>
+              <Bar dataKey="realizedPnl" name="已实现盈亏" radius={[0, 4, 4, 0]}>
                 {chartData.map((item) => (
                   <Cell
                     key={item.symbol}
