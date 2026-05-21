@@ -18,8 +18,7 @@ export const navigationItems: NavigationItem[] = [
   { path: '/import', label: 'Import', zhLabel: '邮件导入', icon: MailPlus },
   { path: '/performance', label: 'Performance', zhLabel: '收益分析', icon: BarChart3 },
   { path: '/cash-flows', label: 'Cash Flow', zhLabel: '资金流水', icon: Wallet },
-  { path: '/behavior', label: 'Behavior', zhLabel: '交易行为', icon: Activity },
+  { path: '/trading-behavior', label: 'Trading Behavior', zhLabel: '交易行为', icon: Activity },
   { path: '/news', label: 'News & AI', zhLabel: '股票资讯', icon: Newspaper },
   { path: '/settings', label: 'Settings', zhLabel: '设置', icon: Settings },
 ];
-

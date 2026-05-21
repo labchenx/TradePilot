@@ -33,6 +33,7 @@ const LOT_OPEN_EVENT_TYPES = [
 ] as const;
 
 const LOT_CLOSE_EVENT_TYPES = ['TRADE_SELL', 'TRANSFER_OUT'] as const;
+const VESTED_STOCK_GRANT_DESCRIPTION = '\u80a1\u7968\u5956\u52b1\u5151\u73b0';
 
 function createPosition(symbol: string): MutablePosition {
   return {
@@ -133,6 +134,18 @@ function getOpenLotCost(event: DashboardEventRow) {
     .amount.abs();
 }
 
+function shouldOpenLot(event: DashboardEventRow) {
+  if (event.eventType !== 'STOCK_GRANT') {
+    return true;
+  }
+
+  // IBKR reports the same bonus-share lifecycle in multiple rows:
+  // grant -> vesting -> withholding tax. The vesting row confirms status
+  // for shares that were already granted, so counting it again inflates
+  // the current position.
+  return !event.description.includes(VESTED_STOCK_GRANT_DESCRIPTION);
+}
+
 /**
  * 持仓和 lot 计算器。
  *
@@ -168,6 +181,10 @@ export function calculatePositionCost(
     positions.set(symbol, position);
 
     if (LOT_OPEN_EVENT_TYPES.includes(event.eventType as never)) {
+      if (!shouldOpenLot(event)) {
+        continue;
+      }
+
       if (event.eventType === 'TRADE_BUY') {
         position.tradeCount += 1;
       }

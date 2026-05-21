@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   ListPortfolioTransactionsDto,
   PortfolioTransactionSortBy,
+  PortfolioTransactionSide,
 } from './dto/list-portfolio-transactions.dto';
 
 type TransactionEventRow = Prisma.TransactionEventGetPayload<object>;
@@ -55,6 +56,19 @@ export interface PortfolioTransactionsResponse {
     total: number;
     totalPages: number;
   };
+  warnings: string[];
+}
+
+export interface PortfolioTransactionItemFilters {
+  search?: string;
+  side?: PortfolioTransactionSide;
+  symbol?: string;
+  startDate?: Date;
+  endDate?: Date;
+}
+
+export interface PortfolioTransactionItemResult {
+  transactions: PortfolioTransactionItem[];
   warnings: string[];
 }
 
@@ -253,26 +267,29 @@ function isStockTradeEvent(
 export class PortfolioTransactionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Transactions page is a debugging surface, so it starts from persisted
-   * normalized transaction_events and keeps all financial aggregation here.
-   */
-  async getTransactions(
-    query: ListPortfolioTransactionsDto,
-  ): Promise<PortfolioTransactionsResponse> {
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? 50;
-    const sortBy = query.sortBy ?? 'date';
-    const sortDirection = query.sortDirection ?? 'desc';
-    const keyword = query.search?.trim();
+  async listTransactionItems(
+    filters: PortfolioTransactionItemFilters = {},
+  ): Promise<PortfolioTransactionItemResult> {
+    const keyword = filters.search?.trim();
+    const symbol = filters.symbol?.trim();
     const where: Prisma.TransactionEventWhereInput = {
       isTrade: true,
-      side: query.side
-        ? query.side
+      side: filters.side
+        ? filters.side
         : {
             in: [TradeSide.BUY, TradeSide.SELL],
           },
-      symbol: { not: null },
+      symbol: symbol
+        ? { equals: symbol, mode: 'insensitive' }
+        : { not: null },
+      ...(filters.startDate || filters.endDate
+        ? {
+            tradeDate: {
+              ...(filters.startDate ? { gte: filters.startDate } : {}),
+              ...(filters.endDate ? { lte: filters.endDate } : {}),
+            },
+          }
+        : {}),
       ...(keyword
         ? {
             OR: [
@@ -287,13 +304,36 @@ export class PortfolioTransactionsService {
       where,
       orderBy: [{ tradeDate: 'desc' }, { rawRowIndex: 'desc' }],
     });
-    const { events, warnings: dedupeWarnings } = deduplicateDashboardEvents(
+    const { events, warnings } = deduplicateDashboardEvents(
       rows as DashboardEventRow[],
     );
-    const allTransactions = sortTransactions(
-      events
+
+    return {
+      transactions: events
         .filter(isStockTradeEvent)
         .map((event) => mapTransaction(event as TransactionEventRow)),
+      warnings,
+    };
+  }
+
+  /**
+   * Transactions page is a debugging surface, so it starts from persisted
+   * normalized transaction_events and keeps all financial aggregation here.
+   */
+  async getTransactions(
+    query: ListPortfolioTransactionsDto,
+  ): Promise<PortfolioTransactionsResponse> {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 50;
+    const sortBy = query.sortBy ?? 'date';
+    const sortDirection = query.sortDirection ?? 'desc';
+    const { transactions: transactionItems, warnings: dedupeWarnings } =
+      await this.listTransactionItems({
+        search: query.search,
+        side: query.side,
+      });
+    const allTransactions = sortTransactions(
+      transactionItems,
       sortBy,
       sortDirection,
     );

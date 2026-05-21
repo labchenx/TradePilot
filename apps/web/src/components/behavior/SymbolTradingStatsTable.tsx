@@ -1,28 +1,24 @@
 import { CardShell, ProfitLossNumber } from '@/components/common';
-import type { PnlContributionItem } from '@/types/performance';
+import type { SymbolTradingStats } from '@/types';
+import { formatCurrency } from '@/utils';
 
-interface PerformanceTableProps {
-  rows: PnlContributionItem[];
+interface SymbolTradingStatsTableProps {
+  rows: SymbolTradingStats[];
   loading: boolean;
 }
 
-function nullablePnl(value: number | null) {
-  return value === null ? (
-    <span className="text-neutral-400">--</span>
-  ) : (
-    <ProfitLossNumber amount={value} />
-  );
-}
-
-export function PerformanceTable({ rows, loading }: PerformanceTableProps) {
+export function SymbolTradingStatsTable({
+  rows,
+  loading,
+}: SymbolTradingStatsTableProps) {
   return (
     <CardShell className="overflow-hidden">
       <div className="border-b border-neutral-200 p-5 dark:border-neutral-800">
         <h3 className="text-lg font-semibold text-neutral-900 dark:text-white">
-          盈亏贡献明细
+          个股交易活跃度排行
         </h3>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          按 symbol 展示 realizedPnl、unrealizedPnl 和 totalPnl
+          默认按 tradeCount 从高到低排序，只统计 BUY / SELL
         </p>
       </div>
       <div className="overflow-x-auto">
@@ -30,22 +26,26 @@ export function PerformanceTable({ rows, loading }: PerformanceTableProps) {
           <thead className="bg-neutral-50 text-xs uppercase text-neutral-500 dark:bg-neutral-900/50 dark:text-neutral-400">
             <tr>
               <th className="px-6 py-4 font-medium">Symbol</th>
+              <th className="px-6 py-4 text-right font-medium">Trades</th>
+              <th className="px-6 py-4 text-right font-medium">BUY</th>
+              <th className="px-6 py-4 text-right font-medium">SELL</th>
+              <th className="px-6 py-4 text-right font-medium">Buy Amount</th>
+              <th className="px-6 py-4 text-right font-medium">Sell Amount</th>
+              <th className="px-6 py-4 text-right font-medium">Commission</th>
               <th className="px-6 py-4 text-right font-medium">Realized P/L</th>
-              <th className="px-6 py-4 text-right font-medium">Unrealized P/L</th>
-              <th className="px-6 py-4 text-right font-medium">Total P/L</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
             {loading ? (
               <tr>
-                <td className="px-6 py-8 text-center text-neutral-500" colSpan={4}>
-                  盈亏贡献明细加载中...
+                <td className="px-6 py-8 text-center text-neutral-500" colSpan={8}>
+                  个股活跃度加载中...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="px-6 py-8 text-center text-neutral-500" colSpan={4}>
-                  暂无盈亏贡献数据。
+                <td className="px-6 py-8 text-center text-neutral-500" colSpan={8}>
+                  暂无个股交易活跃度数据
                 </td>
               </tr>
             ) : (
@@ -62,14 +62,26 @@ export function PerformanceTable({ rows, loading }: PerformanceTableProps) {
                       <div className="text-xs text-neutral-500">{row.name}</div>
                     ) : null}
                   </td>
+                  <td className="px-6 py-4 text-right tabular-nums">
+                    {row.tradeCount}
+                  </td>
+                  <td className="px-6 py-4 text-right tabular-nums">
+                    {row.buyCount}
+                  </td>
+                  <td className="px-6 py-4 text-right tabular-nums">
+                    {row.sellCount}
+                  </td>
+                  <td className="px-6 py-4 text-right tabular-nums">
+                    {formatCurrency(row.buyAmount)}
+                  </td>
+                  <td className="px-6 py-4 text-right tabular-nums">
+                    {formatCurrency(row.sellAmount)}
+                  </td>
+                  <td className="px-6 py-4 text-right tabular-nums">
+                    {formatCurrency(row.commission)}
+                  </td>
                   <td className="px-6 py-4 text-right">
                     <ProfitLossNumber amount={row.realizedPnl} />
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    {nullablePnl(row.unrealizedPnl)}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    {nullablePnl(row.totalPnl)}
                   </td>
                 </tr>
               ))

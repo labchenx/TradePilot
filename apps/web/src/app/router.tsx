@@ -29,11 +29,11 @@ export const router = createBrowserRouter([
       { path: 'import', Component: ImportPage },
       { path: 'performance', Component: PerformancePage },
       { path: 'cash-flows', Component: CashFlowPage },
-      { path: 'behavior', Component: BehaviorPage },
+      { path: 'trading-behavior', Component: BehaviorPage },
+      { path: 'behavior', element: <Navigate to="/trading-behavior" replace /> },
       { path: 'news', Component: NewsPage },
       { path: 'stock/:symbol', Component: StockDetailPage },
       { path: 'settings', Component: SettingsPage },
     ],
   },
 ]);
-
