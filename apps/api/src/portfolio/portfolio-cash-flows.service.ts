@@ -34,6 +34,7 @@ export interface CashFlowsResponse {
 }
 
 const BASE_CURRENCY = 'USD';
+const DEFAULT_USER_ID = 'default_user';
 
 function dateOnly(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -118,9 +119,10 @@ export class PortfolioCashFlowsService {
    * 这张表是入金/出金的业务事实表；页面不再混入交易、股息、税费、
    * 利息或手续费，避免和交易流水页职责重叠。
    */
-  async getCashFlows(): Promise<CashFlowsResponse> {
+  async getCashFlows(userId = DEFAULT_USER_ID): Promise<CashFlowsResponse> {
     const rows = await this.prisma.cashFlow.findMany({
       where: {
+        userId,
         type: { in: [CashFlowType.DEPOSIT, CashFlowType.WITHDRAWAL] },
       },
       orderBy: [{ flowDate: 'desc' }, { createdAt: 'desc' }],

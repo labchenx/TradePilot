@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MonthlySnapshotService } from './monthly-snapshot.service';
 
 const DEFAULT_ACCOUNT_ID = 'ALL';
+const DEFAULT_USER_ID = 'default_user';
 
 function normalizeAssetTrendRange(range?: string): AssetTrendRange {
   return assetTrendRanges.includes(range as AssetTrendRange)
@@ -82,19 +83,21 @@ export class MonthlyTrendService {
     private readonly monthlySnapshotService: MonthlySnapshotService,
   ) {}
 
-  private async findSnapshotPoints(accountId: string) {
+  private async findSnapshotPoints(userId: string, accountId: string) {
     const [snapshots, importFiles] = await Promise.all([
       this.prisma.portfolioMonthlySnapshot.findMany({
-        where: { accountId },
+        where: { userId, accountId },
         orderBy: { month: 'asc' },
       }),
       this.prisma.importFile.findMany({
+        where: { userId },
         orderBy: [{ periodEnd: 'asc' }, { createdAt: 'asc' }],
       }),
     ]);
 
     const missingPriceRows = await this.prisma.positionMonthlySnapshot.findMany({
       where: {
+        userId,
         accountId,
         marketPrice: null,
       },
@@ -162,12 +165,16 @@ export class MonthlyTrendService {
    * 如果快照为空，第一次访问会触发生成；生成后后续访问就只读快照表，不再每次扫描
    * transaction_events。导入流程会主动调用 regenerateSnapshotsFromMonth 刷新受影响月份。
    */
-  async getMonthlyTrend(range?: AssetTrendRange, accountId = DEFAULT_ACCOUNT_ID) {
-    let result = await this.findSnapshotPoints(accountId);
+  async getMonthlyTrend(
+    userId = DEFAULT_USER_ID,
+    range?: AssetTrendRange,
+    accountId = DEFAULT_ACCOUNT_ID,
+  ) {
+    let result = await this.findSnapshotPoints(userId, accountId);
 
     if (result.points.length === 0) {
-      await this.monthlySnapshotService.generateMonthlySnapshots(accountId);
-      result = await this.findSnapshotPoints(accountId);
+      await this.monthlySnapshotService.generateMonthlySnapshots(userId, accountId);
+      result = await this.findSnapshotPoints(userId, accountId);
     }
 
     return filterAssetTrendPoints(result.points, range);

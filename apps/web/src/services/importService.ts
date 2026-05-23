@@ -7,8 +7,7 @@ import type {
   ImportPreviewRecord,
   ImportPreviewResponse,
 } from '@/types';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4100';
+import { apiFetch } from './apiClient';
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (response.ok) {
@@ -36,7 +35,7 @@ export const importService = {
       formData.append('files', file);
     });
 
-    const response = await fetch(`${API_BASE_URL}/imports/ibkr-csv/preview`, {
+    const response = await apiFetch('/imports/ibkr-csv/preview', {
       method: 'POST',
       body: formData,
     });
@@ -48,7 +47,7 @@ export const importService = {
     jobPreviewId: string,
     _records: ImportPreviewRecord[],
   ): Promise<ImportConfirmResponse> {
-    const response = await fetch(`${API_BASE_URL}/imports/ibkr-csv/confirm`, {
+    const response = await apiFetch('/imports/ibkr-csv/confirm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jobPreviewId }),
@@ -58,17 +57,17 @@ export const importService = {
   },
 
   async listHistory(): Promise<ImportHistoryItem[]> {
-    const response = await fetch(`${API_BASE_URL}/imports/history`);
+    const response = await apiFetch('/imports/history');
     return parseResponse<ImportHistoryItem[]>(response);
   },
 
   async getDetail(id: string): Promise<ImportJobDetail> {
-    const response = await fetch(`${API_BASE_URL}/imports/${id}`);
+    const response = await apiFetch(`/imports/${id}`);
     return parseResponse<ImportJobDetail>(response);
   },
 
   async deleteHistory(id: string): Promise<ImportDeleteHistoryResponse> {
-    const response = await fetch(`${API_BASE_URL}/imports/history/${id}`, {
+    const response = await apiFetch(`/imports/history/${id}`, {
       method: 'DELETE',
     });
 
@@ -76,7 +75,7 @@ export const importService = {
   },
 
   async clearData(confirmation: string): Promise<ClearDataResponse> {
-    const response = await fetch(`${API_BASE_URL}/portfolio/clear-data`, {
+    const response = await apiFetch('/portfolio/clear-data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ confirmation }),

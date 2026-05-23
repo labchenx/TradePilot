@@ -4,6 +4,7 @@ import { PortfolioTransactionsService } from './portfolio-transactions.service';
 function tradeEvent(overrides: Record<string, unknown> = {}) {
   return {
     id: 'event-1',
+    userId: 'default_user',
     importFileId: 'import-1',
     source: 'IBKR_CSV',
     sourceEventHash: 'hash-1',

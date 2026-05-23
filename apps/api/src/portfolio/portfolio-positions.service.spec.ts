@@ -4,6 +4,7 @@ import { PortfolioPositionsService } from './portfolio-positions.service';
 function createTradeEvent(overrides: Record<string, unknown>) {
   return {
     id: 'event-1',
+    userId: 'default_user',
     importFileId: 'import-1',
     source: 'IBKR_CSV',
     sourceEventHash: null,

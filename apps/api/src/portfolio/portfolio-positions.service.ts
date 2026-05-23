@@ -16,6 +16,7 @@ const EVENT_ORDER: Prisma.TransactionEventOrderByWithRelationInput[] = [
   { tradeDate: 'asc' },
   { rawRowIndex: 'asc' },
 ];
+const DEFAULT_USER_ID = 'default_user';
 
 export interface PortfolioHoldingItem {
   symbol: string;
@@ -116,8 +117,9 @@ export class PortfolioPositionsService {
    * Controller only exposes the API; this service owns the orchestration:
    * database rows -> de-duplicated events -> adjusted lots -> quote valuation.
    */
-  async getPositions(): Promise<PortfolioPositionsResponse> {
+  async getPositions(userId = DEFAULT_USER_ID): Promise<PortfolioPositionsResponse> {
     const rawEvents = await this.prisma.transactionEvent.findMany({
+      where: { userId },
       orderBy: EVENT_ORDER,
     });
     const { events, warnings: dedupeWarnings } =
@@ -127,7 +129,7 @@ export class PortfolioPositionsService {
       position.remainingQuantity.gt(0),
     );
     const symbols = currentPositions.map((position) => position.symbol);
-    const quotes = await this.quoteService.getCurrentQuotes(symbols);
+    const quotes = await this.quoteService.getCurrentQuotes(symbols, userId);
     const marketValuation = calculateMarketValuation(positionCost, quotes);
     const valuationsBySymbol = new Map(
       marketValuation.items.map((item) => [item.symbol, item]),

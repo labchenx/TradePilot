@@ -1,4 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { CurrentUserParam } from '../auth/current-user.decorator';
+import { CurrentUser } from '../auth/auth.types';
 import { ListTransactionEventsDto } from './dto/list-transaction-events.dto';
 import { TransactionEventsService } from './transaction-events.service';
 
@@ -9,8 +11,10 @@ export class TransactionEventsController {
   ) {}
 
   @Get()
-  findAll(@Query() query: ListTransactionEventsDto) {
-    return this.transactionEventsService.findAll(query);
+  findAll(
+    @CurrentUserParam() user: CurrentUser,
+    @Query() query: ListTransactionEventsDto,
+  ) {
+    return this.transactionEventsService.findAll(user.id, query);
   }
 }
-

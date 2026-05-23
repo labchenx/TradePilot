@@ -1,4 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { CurrentUserParam } from '../auth/current-user.decorator';
+import { CurrentUser } from '../auth/auth.types';
 import { AssetTrendRange } from './dto/asset-trend.dto';
 import { DashboardService } from './dashboard.service';
 
@@ -7,32 +9,35 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('summary')
-  getSummary() {
-    return this.dashboardService.getSummary();
+  getSummary(@CurrentUserParam() user: CurrentUser) {
+    return this.dashboardService.getSummary(user.id);
   }
 
   @Get('asset-trend')
-  getAssetTrend(@Query('range') range?: AssetTrendRange) {
-    return this.dashboardService.getAssetTrend(range);
+  getAssetTrend(
+    @CurrentUserParam() user: CurrentUser,
+    @Query('range') range?: AssetTrendRange,
+  ) {
+    return this.dashboardService.getAssetTrend(user.id, range);
   }
 
   @Get('allocation')
-  getAllocation() {
-    return this.dashboardService.getAllocation();
+  getAllocation(@CurrentUserParam() user: CurrentUser) {
+    return this.dashboardService.getAllocation(user.id);
   }
 
   @Get('return-breakdown')
-  getReturnBreakdown() {
-    return this.dashboardService.getReturnBreakdown();
+  getReturnBreakdown(@CurrentUserParam() user: CurrentUser) {
+    return this.dashboardService.getReturnBreakdown(user.id);
   }
 
   @Get('realized-pnl-by-symbol')
-  getRealizedPnlBySymbol() {
-    return this.dashboardService.getRealizedPnlBySymbol();
+  getRealizedPnlBySymbol(@CurrentUserParam() user: CurrentUser) {
+    return this.dashboardService.getRealizedPnlBySymbol(user.id);
   }
 
   @Get('recent-trades')
-  getRecentTrades() {
-    return this.dashboardService.getRecentTrades();
+  getRecentTrades(@CurrentUserParam() user: CurrentUser) {
+    return this.dashboardService.getRecentTrades(user.id);
   }
 }

@@ -9,6 +9,7 @@ function createEvent(
 ): Prisma.TransactionEventGetPayload<object> {
   return {
     id: `event_${overrides.rawRowIndex ?? 1}`,
+    userId: overrides.userId ?? 'default_user',
     importFileId: overrides.importFileId ?? 'import_1',
     source: 'IBKR_CSV',
     sourceEventHash: overrides.sourceEventHash ?? null,
@@ -45,7 +46,11 @@ function createPrismaMock(events: Prisma.TransactionEventGetPayload<object>[]) {
     },
     transactionEvent: {
       findMany: jest.fn(({ where, take }: { where?: unknown; take?: number } = {}) => {
-        if (where) {
+        if (
+          typeof where === 'object' &&
+          where !== null &&
+          'eventType' in where
+        ) {
           return events
             .filter(
               (event) =>

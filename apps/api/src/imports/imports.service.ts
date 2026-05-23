@@ -19,6 +19,7 @@ import { createTransactionEventHash } from './transaction-event-hash';
 
 const MAX_FILES = 10;
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const DEFAULT_USER_ID = 'default_user';
 
 function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex');
@@ -192,15 +193,21 @@ export class ImportsService {
     private readonly importConfirmService: ImportConfirmService,
   ) {}
 
-  async preview(file: Express.Multer.File) {
-    return this.previewIbkrCsv(file ? [file] : []);
+  async preview(userId: string, file: Express.Multer.File) {
+    return this.previewIbkrCsv(userId, file ? [file] : []);
   }
 
-  confirm(importFileId: string) {
-    return this.importConfirmService.confirm(importFileId);
+  confirm(userId: string, importFileId: string) {
+    return this.importConfirmService.confirm(userId, importFileId);
   }
 
-  async previewIbkrCsv(files: Express.Multer.File[]): Promise<ImportPreviewResponse> {
+  async previewIbkrCsv(
+    userIdOrFiles: string | Express.Multer.File[],
+    maybeFiles?: Express.Multer.File[],
+  ): Promise<ImportPreviewResponse> {
+    const userId =
+      typeof userIdOrFiles === 'string' ? userIdOrFiles : DEFAULT_USER_ID;
+    const files = typeof userIdOrFiles === 'string' ? (maybeFiles ?? []) : userIdOrFiles;
     this.validateFiles(files);
 
     const previewFiles: ImportPreviewFile[] = [];
@@ -253,12 +260,14 @@ export class ImportsService {
     });
 
     const markedRecords = await this.importDedupService.markPreviewRecords(
+      userId,
       previewRecords,
     );
     const summary = calculatePreviewSummary(markedRecords);
     const importJob = await this.prisma.importJob.create({
       data: {
         source: 'IBKR_CSV',
+        userId,
         status: 'PREVIEWED',
         fileNames: previewFiles.map((file) => file.fileName),
         summary: summary as unknown as Prisma.InputJsonValue,
@@ -279,15 +288,22 @@ export class ImportsService {
     };
   }
 
-  confirmIbkrCsv(confirmImportDto: ConfirmImportDto) {
+  confirmIbkrCsv(
+    userIdOrDto: string | ConfirmImportDto,
+    maybeDto?: ConfirmImportDto,
+  ) {
+    const userId = typeof userIdOrDto === 'string' ? userIdOrDto : DEFAULT_USER_ID;
+    const confirmImportDto = typeof userIdOrDto === 'string' ? (maybeDto as ConfirmImportDto) : userIdOrDto;
     return this.importConfirmService.confirm(
+      userId,
       confirmImportDto.jobPreviewId ?? confirmImportDto.importFileId,
       confirmImportDto.records,
     );
   }
 
-  async history() {
+  async history(userId = DEFAULT_USER_ID) {
     const jobs = await this.prisma.importJob.findMany({
+      where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: { _count: { select: { records: true } } },
@@ -312,13 +328,15 @@ export class ImportsService {
     }));
   }
 
-  async deleteHistory(id: string) {
+  async deleteHistory(userIdOrId: string, maybeId?: string) {
+    const userId = maybeId ? userIdOrId : DEFAULT_USER_ID;
+    const id = maybeId ?? userIdOrId;
     const existing = await this.prisma.importJob.findUnique({
       where: { id },
       include: { _count: { select: { records: true } } },
     });
 
-    if (!existing) {
+    if (!existing || existing.userId !== userId) {
       throw new NotFoundException(`Import history ${id} was not found.`);
     }
 
@@ -333,13 +351,13 @@ export class ImportsService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(userId: string, id: string) {
     const importJob = await this.prisma.importJob.findUnique({
       where: { id },
       include: { records: { orderBy: { createdAt: 'asc' } } },
     });
 
-    if (importJob) {
+    if (importJob && importJob.userId === userId) {
       return {
         id: importJob.id,
         source: importJob.source,
@@ -368,7 +386,7 @@ export class ImportsService {
       };
     }
 
-    return this.findLegacyImportFile(id);
+    return this.findLegacyImportFile(userId, id);
   }
 
   private validateFiles(files: Express.Multer.File[]) {
@@ -423,13 +441,13 @@ export class ImportsService {
     });
   }
 
-  private async findLegacyImportFile(id: string) {
+  private async findLegacyImportFile(userId: string, id: string) {
     const importFile = await this.prisma.importFile.findUnique({
       where: { id },
       include: { transactionEvents: { orderBy: { rawRowIndex: 'asc' } } },
     });
 
-    if (!importFile) {
+    if (!importFile || importFile.userId !== userId) {
       throw new NotFoundException(`Import job ${id} was not found.`);
     }
 

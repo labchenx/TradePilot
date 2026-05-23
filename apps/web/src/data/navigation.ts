@@ -12,7 +12,7 @@ import {
 import type { NavigationItem } from '@/types';
 
 export const navigationItems: NavigationItem[] = [
-  { path: '/', label: 'Dashboard', zhLabel: '投资总览', icon: LayoutDashboard },
+  { path: '/dashboard', label: 'Dashboard', zhLabel: '投资总览', icon: LayoutDashboard },
   { path: '/transactions', label: 'Transactions', zhLabel: '交易记录', icon: ArrowRightLeft },
   { path: '/holdings', label: 'Holdings', zhLabel: '当前持仓', icon: PieChart },
   { path: '/performance', label: 'Performance', zhLabel: '收益分析', icon: BarChart3 },

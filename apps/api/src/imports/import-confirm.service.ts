@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CashFlowType, Prisma } from '@prisma/client';
+import { QuoteService } from '../market-data/quote-service';
 import { MonthlySnapshotService } from '../portfolio/monthly-snapshot.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -33,17 +34,20 @@ function recordStatusToDbStatus(
 }
 
 function buildTransactionEventRow(
+  userId: string,
   importFileId: string,
   data: NormalizedImportRecordData,
+  saveRawData = true,
 ): Prisma.TransactionEventCreateManyInput {
   return {
+    userId,
     importFileId,
     source: 'IBKR_CSV',
     sourceEventHash: data.sourceHash,
     sourceFileName: data.sourceFileName,
     sourceSection: data.sourceSection,
     rawRowIndex: data.rawRowIndex,
-    rawData: data.rawData as Prisma.InputJsonValue,
+    rawData: (saveRawData ? data.rawData : {}) as Prisma.InputJsonValue,
     tradeDate: toDateOnly(data.tradeDate),
     accountId: data.accountId,
     description: data.description,
@@ -75,6 +79,7 @@ function transactionEventToCashFlow(
   }
 
   return {
+    userId: row.userId as string,
     accountId: row.accountId,
     type:
       row.eventType === 'DEPOSIT'
@@ -118,22 +123,39 @@ function hasCashReport(summary: unknown) {
   return typeof value?.cashReport?.cashBalance === 'number';
 }
 
+const DEFAULT_USER_ID = 'default_user';
+
 @Injectable()
 export class ImportConfirmService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly monthlySnapshotService: MonthlySnapshotService,
+    private readonly quoteService?: QuoteService,
   ) {}
 
   async confirm(
-    jobPreviewId?: string,
-    requestRecords?: unknown[],
+    userIdOrJobPreviewId?: string,
+    jobPreviewIdOrRecords?: string | unknown[],
+    maybeRecords?: unknown[],
   ): Promise<ImportConfirmResponse> {
+    const hasExplicitUser =
+      typeof jobPreviewIdOrRecords === 'string' || Array.isArray(maybeRecords);
+    const userId = hasExplicitUser
+      ? (userIdOrJobPreviewId ?? DEFAULT_USER_ID)
+      : DEFAULT_USER_ID;
+    const jobPreviewId = hasExplicitUser
+      ? (jobPreviewIdOrRecords as string | undefined)
+      : userIdOrJobPreviewId;
+    const requestRecords = hasExplicitUser
+      ? maybeRecords
+      : Array.isArray(jobPreviewIdOrRecords)
+        ? jobPreviewIdOrRecords
+        : undefined;
     const existingJob = jobPreviewId
       ? await this.prisma.importJob.findUnique({ where: { id: jobPreviewId } })
       : null;
 
-    if (jobPreviewId && !existingJob) {
+    if (jobPreviewId && (!existingJob || existingJob.userId !== userId)) {
       throw new NotFoundException(`Import preview ${jobPreviewId} was not found.`);
     }
 
@@ -152,12 +174,27 @@ export class ImportConfirmService {
       throw new BadRequestException('No preview records are available to confirm.');
     }
 
+    const settings = await this.prisma.userSettings.findUnique({
+      where: { userId },
+      select: {
+        autoRefreshQuotesAfterImport: true,
+        autoRegenerateSnapshotsAfterImport: true,
+        saveRawData: true,
+      },
+    });
+    const saveRawData = settings?.saveRawData ?? true;
+    const autoRefreshQuotesAfterImport =
+      settings?.autoRefreshQuotesAfterImport ?? true;
+    const autoRegenerateSnapshotsAfterImport =
+      settings?.autoRegenerateSnapshotsAfterImport ?? true;
+
     const result = await this.prisma.$transaction(async (tx) => {
       const importJob =
         existingJob ??
         (await tx.importJob.create({
           data: {
             fileNames: [],
+            userId,
             status: 'PREVIEWED',
             summary: {},
             previewRecords: records as unknown as Prisma.InputJsonValue,
@@ -165,7 +202,7 @@ export class ImportConfirmService {
           },
         }));
 
-      const importFileIds = await this.ensureImportFiles(tx, records);
+      const importFileIds = await this.ensureImportFiles(tx, userId, records);
       const seenHashes = new Set<string>();
       const confirmedRecords: ImportConfirmRecord[] = [];
       const insertedRows: Prisma.TransactionEventCreateManyInput[] = [];
@@ -175,9 +212,11 @@ export class ImportConfirmService {
       for (const record of records) {
         const confirmed = await this.confirmOneRecord(
           tx,
+          userId,
           record,
           importFileIds,
           seenHashes,
+          saveRawData,
         );
 
         confirmedRecords.push(confirmed.record);
@@ -205,11 +244,14 @@ export class ImportConfirmService {
         data: confirmedRecords.map((record) => {
           const preview = records.find((item) => item.tempId === record.tempId);
           return {
+            userId,
             importJobId: importJob.id,
             recordType: record.recordType,
             sourceHash: record.sourceHash,
             status: recordStatusToDbStatus(record.status),
-            rawData: preview?.rawData as Prisma.InputJsonValue,
+            rawData: saveRawData
+              ? (preview?.rawData as Prisma.InputJsonValue)
+              : undefined,
             normalizedData: preview?.data as unknown as Prisma.InputJsonValue,
             errorMessage: record.errorMessage,
           };
@@ -267,12 +309,12 @@ export class ImportConfirmService {
             failedRecords,
           },
           records: confirmedRecords,
-          warnings: [],
+          warnings: [] as string[],
         },
       };
     });
 
-    if (result.earliestDate) {
+    if (result.earliestDate && autoRegenerateSnapshotsAfterImport) {
       const startMonth = result.earliestDate.toISOString().slice(0, 7);
       const accountIds = Array.from(
         new Set(['ALL', ...result.updatedAccountIds.filter(Boolean)]),
@@ -281,6 +323,7 @@ export class ImportConfirmService {
       await Promise.all(
         accountIds.map((accountId) =>
           this.monthlySnapshotService.regenerateSnapshotsFromMonth(
+            userId,
             accountId,
             startMonth,
           ),
@@ -288,11 +331,27 @@ export class ImportConfirmService {
       );
     }
 
+    if (autoRefreshQuotesAfterImport && this.quoteService) {
+      const symbols = Array.from(
+        new Set(
+          result.insertedRows
+            .map((row) => row.symbol)
+            .filter((symbol): symbol is string => typeof symbol === 'string'),
+        ),
+      );
+
+      if (symbols.length > 0) {
+        const quoteResult = await this.quoteService.getCurrentQuotes(symbols, userId);
+        result.response.warnings.push(...quoteResult.warnings);
+      }
+    }
+
     return result.response;
   }
 
   private async ensureImportFiles(
     tx: Prisma.TransactionClient,
+    userId: string,
     records: ImportPreviewRecord[],
   ) {
     const fileMap = new Map<string, string>();
@@ -325,7 +384,12 @@ export class ImportConfirmService {
 
     for (const file of files.values()) {
       const existing = await tx.importFile.findUnique({
-        where: { fileHash: file.fileHash },
+        where: {
+          userId_fileHash: {
+            userId,
+            fileHash: file.fileHash,
+          },
+        },
       });
 
       if (existing) {
@@ -362,6 +426,7 @@ export class ImportConfirmService {
       const importFile = await tx.importFile.create({
         data: {
           filename: file.fileName,
+          userId,
           source: 'IBKR_CSV',
           fileHash: file.fileHash,
           status: 'CONFIRMED',
@@ -386,9 +451,11 @@ export class ImportConfirmService {
 
   private async confirmOneRecord(
     tx: Prisma.TransactionClient,
+    userId: string,
     record: ImportPreviewRecord,
     importFileIds: Map<string, string>,
     seenHashes: Set<string>,
+    saveRawData: boolean,
   ): Promise<{
     record: ImportConfirmRecord;
     insertedRow?: Prisma.TransactionEventCreateManyInput;
@@ -431,7 +498,12 @@ export class ImportConfirmService {
     seenHashes.add(record.sourceHash);
 
     const exactDuplicate = await tx.transactionEvent.findUnique({
-      where: { sourceEventHash: record.sourceHash },
+      where: {
+        userId_sourceEventHash: {
+          userId,
+          sourceEventHash: record.sourceHash,
+        },
+      },
       select: { id: true },
     });
     if (exactDuplicate) {
@@ -446,7 +518,12 @@ export class ImportConfirmService {
     }
 
     if (record.status === 'UPDATE' && record.data.existingEventId) {
-      const updated = await this.updateExistingEvent(tx, record.data);
+      const updated = await this.updateExistingEvent(
+        tx,
+        userId,
+        record.data,
+        saveRawData,
+      );
       if (updated) {
         return {
           record: {
@@ -473,7 +550,12 @@ export class ImportConfirmService {
       };
     }
 
-    const row = buildTransactionEventRow(importFileId, record.data);
+    const row = buildTransactionEventRow(
+      userId,
+      importFileId,
+      record.data,
+      saveRawData,
+    );
     await tx.transactionEvent.create({ data: row });
 
     const cashFlowRow = transactionEventToCashFlow(row);
@@ -496,13 +578,15 @@ export class ImportConfirmService {
 
   private async updateExistingEvent(
     tx: Prisma.TransactionClient,
+    userId: string,
     data: NormalizedImportRecordData,
+    saveRawData: boolean,
   ) {
     const existing = await tx.transactionEvent.findUnique({
       where: { id: data.existingEventId },
     });
 
-    if (!existing) {
+    if (!existing || existing.userId !== userId) {
       return false;
     }
 
@@ -519,7 +603,7 @@ export class ImportConfirmService {
             : undefined,
         currency: existing.currency ?? data.currency,
         sourceEventHash: existing.sourceEventHash ?? data.sourceHash,
-        rawData: mergeRawData(existing.rawData, data.rawData),
+        rawData: saveRawData ? mergeRawData(existing.rawData, data.rawData) : undefined,
       },
     });
 

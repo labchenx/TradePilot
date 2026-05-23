@@ -30,7 +30,7 @@ function createService() {
     },
   };
   const importDedupService = {
-    markPreviewRecords: jest.fn(async (records) => records),
+    markPreviewRecords: jest.fn(async (_userId, records) => records),
   };
   const importConfirmService = {
     confirm: jest.fn(async () => ({
@@ -120,6 +120,7 @@ describe('ImportsService', () => {
     await service.confirmIbkrCsv({ jobPreviewId: 'job_preview_1' });
 
     expect(importConfirmService.confirm).toHaveBeenCalledWith(
+      'default_user',
       'job_preview_1',
       undefined,
     );
@@ -129,6 +130,7 @@ describe('ImportsService', () => {
     const { service, prisma } = createService();
     prisma.importJob.findUnique.mockResolvedValueOnce({
       id: 'job_1',
+      userId: 'default_user',
       _count: { records: 3 },
     });
     prisma.importJob.delete.mockResolvedValueOnce({ id: 'job_1' });

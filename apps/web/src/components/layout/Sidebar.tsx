@@ -1,5 +1,6 @@
 import { LogOut, User } from 'lucide-react';
-import { NavLink } from 'react-router';
+import { NavLink, useNavigate } from 'react-router';
+import { useAuth } from '@/app/auth-provider';
 import { navigationItems } from '@/data';
 import { cn } from '@/utils';
 
@@ -7,6 +8,14 @@ const popoutBubbleClass =
   'pointer-events-none absolute left-full z-50 ml-4 origin-left -translate-x-1 scale-95 whitespace-nowrap rounded-lg bg-neutral-900 px-3 py-2 text-sm font-semibold text-white opacity-0 shadow-xl shadow-neutral-900/15 ring-1 ring-white/10 transition-all duration-200 ease-out group-hover:translate-x-0 group-hover:scale-100 group-hover:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:scale-100 group-focus-visible:opacity-100 dark:bg-white dark:text-black dark:shadow-black/30 dark:ring-black/10';
 
 export function Sidebar() {
+  const navigate = useNavigate();
+  const { logout, user } = useAuth();
+
+  async function handleLogout() {
+    await logout();
+    navigate('/login', { replace: true });
+  }
+
   return (
     <aside className="relative z-20 flex w-[72px] flex-col items-center border-r border-neutral-200 bg-white py-4 transition-colors duration-200 dark:border-neutral-800/60 dark:bg-[#111111]">
       <div className="mb-6 flex h-12 items-center justify-center">
@@ -55,15 +64,16 @@ export function Sidebar() {
           </div>
           <div className="pointer-events-none absolute bottom-0 left-full z-50 ml-4 origin-left translate-x-2 whitespace-nowrap rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white opacity-0 shadow-xl transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 dark:bg-white dark:text-black">
             <div className="flex flex-col">
-              <span>Demo User</span>
-              <span className="text-[10px] font-normal leading-tight opacity-70">user@tradepilot.com</span>
+              <span>{user?.name || 'TradePilot User'}</span>
+              <span className="text-[10px] font-normal leading-tight opacity-70">{user?.email}</span>
             </div>
             <div className="absolute bottom-3 -left-1 border-[5px] border-transparent border-r-neutral-900 dark:border-r-white" />
           </div>
         </div>
 
-        <NavLink
-          to="/login"
+        <button
+          type="button"
+          onClick={handleLogout}
           aria-label="退出登录"
           className="group relative flex h-12 w-12 items-center justify-center rounded-xl text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
         >
@@ -72,7 +82,7 @@ export function Sidebar() {
             退出登录
             <div className="absolute top-1/2 -left-1 -translate-y-1/2 border-[5px] border-transparent border-r-red-600" />
           </div>
-        </NavLink>
+        </button>
       </div>
     </aside>
   );

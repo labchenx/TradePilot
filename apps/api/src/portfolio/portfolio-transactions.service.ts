@@ -60,6 +60,7 @@ export interface PortfolioTransactionsResponse {
 }
 
 export interface PortfolioTransactionItemFilters {
+  userId?: string;
   search?: string;
   side?: PortfolioTransactionSide;
   symbol?: string;
@@ -73,6 +74,7 @@ export interface PortfolioTransactionItemResult {
 }
 
 const DEFAULT_CURRENCY = 'USD';
+const DEFAULT_USER_ID = 'default_user';
 
 function toNullablePlainNumber(
   value: Prisma.Decimal | Decimal | null | undefined,
@@ -273,6 +275,7 @@ export class PortfolioTransactionsService {
     const keyword = filters.search?.trim();
     const symbol = filters.symbol?.trim();
     const where: Prisma.TransactionEventWhereInput = {
+      userId: filters.userId ?? DEFAULT_USER_ID,
       isTrade: true,
       side: filters.side
         ? filters.side
@@ -321,14 +324,19 @@ export class PortfolioTransactionsService {
    * normalized transaction_events and keeps all financial aggregation here.
    */
   async getTransactions(
-    query: ListPortfolioTransactionsDto,
+    userIdOrQuery: string | ListPortfolioTransactionsDto,
+    maybeQuery?: ListPortfolioTransactionsDto,
   ): Promise<PortfolioTransactionsResponse> {
+    const userId =
+      typeof userIdOrQuery === 'string' ? userIdOrQuery : DEFAULT_USER_ID;
+    const query = typeof userIdOrQuery === 'string' ? (maybeQuery ?? {}) : userIdOrQuery;
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 50;
     const sortBy = query.sortBy ?? 'date';
     const sortDirection = query.sortDirection ?? 'desc';
     const { transactions: transactionItems, warnings: dedupeWarnings } =
       await this.listTransactionItems({
+        userId,
         search: query.search,
         side: query.side,
       });

@@ -1,9 +1,8 @@
 import type { CashFlowsData } from '@/types';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4100';
+import { apiFetch } from './apiClient';
 
 async function requestApi<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+  const response = await apiFetch(path);
 
   if (!response.ok) {
     throw new Error(`Cash Flow API request failed: ${response.status}`);

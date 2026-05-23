@@ -10,6 +10,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { CurrentUserParam } from '../auth/current-user.decorator';
+import { CurrentUser } from '../auth/auth.types';
 import { ConfirmImportDto } from './dto/confirm-import.dto';
 import { ImportsService } from './imports.service';
 
@@ -19,38 +21,53 @@ export class ImportsController {
 
   @Post('preview')
   @UseInterceptors(FileInterceptor('file'))
-  preview(@UploadedFile() file: Express.Multer.File) {
-    return this.importsService.preview(file);
+  preview(
+    @CurrentUserParam() user: CurrentUser,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.importsService.preview(user.id, file);
   }
 
   @Post('confirm')
-  confirm(@Body() confirmImportDto: ConfirmImportDto) {
-    return this.importsService.confirmIbkrCsv(confirmImportDto);
+  confirm(
+    @CurrentUserParam() user: CurrentUser,
+    @Body() confirmImportDto: ConfirmImportDto,
+  ) {
+    return this.importsService.confirmIbkrCsv(user.id, confirmImportDto);
   }
 
   @Post('ibkr-csv/preview')
   @UseInterceptors(FilesInterceptor('files', 10))
-  previewIbkrCsv(@UploadedFiles() files: Express.Multer.File[]) {
-    return this.importsService.previewIbkrCsv(files ?? []);
+  previewIbkrCsv(
+    @CurrentUserParam() user: CurrentUser,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    return this.importsService.previewIbkrCsv(user.id, files ?? []);
   }
 
   @Post('ibkr-csv/confirm')
-  confirmIbkrCsv(@Body() confirmImportDto: ConfirmImportDto) {
-    return this.importsService.confirmIbkrCsv(confirmImportDto);
+  confirmIbkrCsv(
+    @CurrentUserParam() user: CurrentUser,
+    @Body() confirmImportDto: ConfirmImportDto,
+  ) {
+    return this.importsService.confirmIbkrCsv(user.id, confirmImportDto);
   }
 
   @Get('history')
-  history() {
-    return this.importsService.history();
+  history(@CurrentUserParam() user: CurrentUser) {
+    return this.importsService.history(user.id);
   }
 
   @Delete('history/:id')
-  deleteHistory(@Param('id') id: string) {
-    return this.importsService.deleteHistory(id);
+  deleteHistory(
+    @CurrentUserParam() user: CurrentUser,
+    @Param('id') id: string,
+  ) {
+    return this.importsService.deleteHistory(user.id, id);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.importsService.findOne(id);
+  findOne(@CurrentUserParam() user: CurrentUser, @Param('id') id: string) {
+    return this.importsService.findOne(user.id, id);
   }
 }

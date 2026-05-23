@@ -6,6 +6,7 @@ function createEvent(
 ): Prisma.TransactionEventGetPayload<object> {
   return {
     id: `event_${overrides.rawRowIndex ?? 1}`,
+    userId: overrides.userId ?? 'default_user',
     importFileId: overrides.importFileId ?? 'import_1',
     source: 'IBKR_CSV',
     sourceEventHash: overrides.sourceEventHash ?? null,
@@ -40,6 +41,7 @@ function createImportFile(
 ): Prisma.ImportFileGetPayload<object> {
   return {
     id: overrides.id ?? 'import_1',
+    userId: overrides.userId ?? 'default_user',
     filename: overrides.filename ?? 'sample.csv',
     source: 'IBKR_CSV',
     fileHash: overrides.fileHash ?? `hash_${overrides.id ?? '1'}`,

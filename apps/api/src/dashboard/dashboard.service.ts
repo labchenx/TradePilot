@@ -19,6 +19,7 @@ const EVENT_ORDER: Prisma.TransactionEventOrderByWithRelationInput[] = [
   { tradeDate: 'asc' },
   { rawRowIndex: 'asc' },
 ];
+const DEFAULT_USER_ID = 'default_user';
 
 @Injectable()
 export class DashboardService {
@@ -32,12 +33,14 @@ export class DashboardService {
    * Dashboard 的大部分模块都基于同一份 transaction_events。
    * Service 只负责取数、去重和编排，具体金融计算交给 calculators。
    */
-  private async findDashboardEvents() {
+  private async findDashboardEvents(userId: string) {
     const [events, importFiles] = await Promise.all([
       this.prisma.transactionEvent.findMany({
+        where: { userId },
         orderBy: EVENT_ORDER,
       }),
       this.prisma.importFile.findMany({
+        where: { userId },
         orderBy: [{ periodEnd: 'asc' }, { createdAt: 'asc' }],
       }),
     ]);
@@ -48,15 +51,15 @@ export class DashboardService {
     };
   }
 
-  private async buildPortfolioContext() {
-    const { events, importFiles, warnings } = await this.findDashboardEvents();
+  private async buildPortfolioContext(userId: string) {
+    const { events, importFiles, warnings } = await this.findDashboardEvents(userId);
     const cashMetrics = calculateCashMetrics(events, importFiles);
     const positionCost = calculatePositionCost(events);
     const realizedPnlMetrics = calculateRealizedPnlSource(events, positionCost);
     const symbols = positionCost.positions
       .filter((position) => position.remainingQuantity.gt(0))
       .map((position) => position.symbol);
-    const quotes = await this.quoteService.getCurrentQuotes(symbols);
+    const quotes = await this.quoteService.getCurrentQuotes(symbols, userId);
     const marketValuation = calculateMarketValuation(positionCost, quotes);
 
     return {
@@ -69,7 +72,7 @@ export class DashboardService {
     };
   }
 
-  async getSummary() {
+  async getSummary(userId = DEFAULT_USER_ID) {
     const {
       warnings,
       cashMetrics,
@@ -77,7 +80,7 @@ export class DashboardService {
       marketValuation,
       realizedPnlMetrics,
     } =
-      await this.buildPortfolioContext();
+      await this.buildPortfolioContext(userId);
     return calculateDashboardSummary(
       cashMetrics,
       positionCost,
@@ -87,18 +90,18 @@ export class DashboardService {
     );
   }
 
-  async getAssetTrend(range?: AssetTrendRange) {
-    return this.monthlyTrendService.getMonthlyTrend(range);
+  async getAssetTrend(userId = DEFAULT_USER_ID, range?: AssetTrendRange) {
+    return this.monthlyTrendService.getMonthlyTrend(userId, range);
   }
 
-  async getAllocation() {
-    const { cashMetrics, marketValuation } = await this.buildPortfolioContext();
+  async getAllocation(userId = DEFAULT_USER_ID) {
+    const { cashMetrics, marketValuation } = await this.buildPortfolioContext(userId);
     return calculateAllocation(cashMetrics, marketValuation);
   }
 
-  async getReturnBreakdown() {
+  async getReturnBreakdown(userId = DEFAULT_USER_ID) {
     const { cashMetrics, positionCost, marketValuation, realizedPnlMetrics } =
-      await this.buildPortfolioContext();
+      await this.buildPortfolioContext(userId);
     return calculateReturnBreakdown(
       cashMetrics,
       positionCost,
@@ -107,16 +110,17 @@ export class DashboardService {
     );
   }
 
-  async getRealizedPnlBySymbol() {
-    const { events } = await this.findDashboardEvents();
+  async getRealizedPnlBySymbol(userId = DEFAULT_USER_ID) {
+    const { events } = await this.findDashboardEvents(userId);
     const positionCost = calculatePositionCost(events);
     const realizedPnlMetrics = calculateRealizedPnlSource(events, positionCost);
     return calculateRealizedPnlBySymbol(positionCost, realizedPnlMetrics);
   }
 
-  async getRecentTrades() {
+  async getRecentTrades(userId = DEFAULT_USER_ID) {
     const trades = await this.prisma.transactionEvent.findMany({
       where: {
+        userId,
         eventType: {
           in: [IbkrEventType.TRADE_BUY, IbkrEventType.TRADE_SELL],
         },

@@ -1,4 +1,6 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { CurrentUserParam } from '../auth/current-user.decorator';
+import { CurrentUser } from '../auth/auth.types';
 import { AssetTrendRange } from '../dashboard/dto/asset-trend.dto';
 import { GetTradingBehaviorDto } from './dto/get-trading-behavior.dto';
 import { ListPortfolioTransactionsDto } from './dto/list-portfolio-transactions.dto';
@@ -30,70 +32,161 @@ export class PortfolioController {
   ) {}
 
   @Get('positions')
-  getPositions() {
-    return this.portfolioPositionsService.getPositions();
+  getPositions(@CurrentUserParam() user: CurrentUser) {
+    return this.portfolioPositionsService.getPositions(user.id);
   }
 
   @Get('transactions')
-  getTransactions(@Query() query: ListPortfolioTransactionsDto) {
-    return this.portfolioTransactionsService.getTransactions(query);
+  getTransactions(
+    @CurrentUserParam() user: CurrentUser,
+    @Query() query: ListPortfolioTransactionsDto,
+  ) {
+    return this.portfolioTransactionsService.getTransactions(user.id, query);
   }
 
   @Get('cash-flows')
-  getCashFlows() {
-    return this.portfolioCashFlowsService.getCashFlows();
+  getCashFlows(@CurrentUserParam() user: CurrentUser) {
+    return this.portfolioCashFlowsService.getCashFlows(user.id);
   }
 
   @Get('analytics')
-  getAnalytics() {
-    return this.portfolioAnalyticsService.getAnalytics();
+  getAnalytics(@CurrentUserParam() user: CurrentUser) {
+    return this.portfolioAnalyticsService.getAnalytics(user.id);
   }
 
   @Get('trading-behavior')
-  getTradingBehavior(@Query() query: GetTradingBehaviorDto) {
-    return this.portfolioTradingBehaviorService.getTradingBehavior(query);
+  getTradingBehavior(
+    @CurrentUserParam() user: CurrentUser,
+    @Query() query: GetTradingBehaviorDto,
+  ) {
+    return this.portfolioTradingBehaviorService.getTradingBehavior(user.id, query);
   }
 
   @Get('monthly-trend')
   getMonthlyTrend(
+    @CurrentUserParam() user: CurrentUser,
     @Query('range') range?: AssetTrendRange,
     @Query('accountId') accountId?: string,
   ) {
-    return this.monthlyTrendService.getMonthlyTrend(range, accountId);
+    return this.monthlyTrendService.getMonthlyTrend(user.id, range, accountId);
   }
 
   @Post('monthly-snapshots/regenerate')
-  regenerateMonthlySnapshots(@Body() body: RegenerateMonthlySnapshotsBody) {
+  regenerateMonthlySnapshots(
+    @CurrentUserParam() user: CurrentUser,
+    @Body() body: RegenerateMonthlySnapshotsBody,
+  ) {
     if (body.startMonth) {
       return this.monthlySnapshotService.regenerateSnapshotsFromMonth(
+        user.id,
         body.accountId,
         body.startMonth,
       );
     }
 
-    return this.monthlySnapshotService.generateMonthlySnapshots(body.accountId);
+    return this.monthlySnapshotService.generateMonthlySnapshots(user.id, body.accountId);
+  }
+
+  @Post('regenerate-monthly-snapshots')
+  regenerateMonthlySnapshotsAlias(
+    @CurrentUserParam() user: CurrentUser,
+    @Body() body: RegenerateMonthlySnapshotsBody,
+  ) {
+    return this.regenerateMonthlySnapshots(user, body);
+  }
+
+  @Post('recalculate-positions')
+  async recalculatePositions(@CurrentUserParam() user: CurrentUser) {
+    const data = await this.portfolioPositionsService.getPositions(user.id);
+    return {
+      success: true,
+      positionsCount: data.holdings.length,
+      warnings: data.warnings,
+      runAt: new Date().toISOString(),
+    };
+  }
+
+  @Post('recalculate-metrics')
+  async recalculateMetrics(@CurrentUserParam() user: CurrentUser) {
+    const data = await this.portfolioAnalyticsService.getAnalytics(user.id);
+    return {
+      success: true,
+      summary: data.summary,
+      warnings: data.warnings,
+      runAt: new Date().toISOString(),
+    };
   }
 
   @Post('clear-data')
-  clearData(@Body() body: { confirmation?: string }) {
-    return this.portfolioClearDataService.clearCurrentUserData(body);
+  clearData(
+    @CurrentUserParam() user: CurrentUser,
+    @Body() body: { confirmation?: string },
+  ) {
+    return this.portfolioClearDataService.clearCurrentUserData(user.id, body);
   }
 }
 
 @Controller('api/portfolio')
 export class PortfolioApiController {
   constructor(
+    private readonly monthlySnapshotService: MonthlySnapshotService,
+    private readonly portfolioPositionsService: PortfolioPositionsService,
+    private readonly portfolioAnalyticsService: PortfolioAnalyticsService,
     private readonly portfolioTradingBehaviorService: PortfolioTradingBehaviorService,
     private readonly portfolioClearDataService: PortfolioClearDataService,
   ) {}
 
   @Get('trading-behavior')
-  getTradingBehavior(@Query() query: GetTradingBehaviorDto) {
-    return this.portfolioTradingBehaviorService.getTradingBehavior(query);
+  getTradingBehavior(
+    @CurrentUserParam() user: CurrentUser,
+    @Query() query: GetTradingBehaviorDto,
+  ) {
+    return this.portfolioTradingBehaviorService.getTradingBehavior(user.id, query);
   }
 
   @Post('clear-data')
-  clearData(@Body() body: { confirmation?: string }) {
-    return this.portfolioClearDataService.clearCurrentUserData(body);
+  clearData(
+    @CurrentUserParam() user: CurrentUser,
+    @Body() body: { confirmation?: string },
+  ) {
+    return this.portfolioClearDataService.clearCurrentUserData(user.id, body);
+  }
+
+  @Post('recalculate-positions')
+  async recalculatePositions(@CurrentUserParam() user: CurrentUser) {
+    const data = await this.portfolioPositionsService.getPositions(user.id);
+    return {
+      success: true,
+      positionsCount: data.holdings.length,
+      warnings: data.warnings,
+      runAt: new Date().toISOString(),
+    };
+  }
+
+  @Post('regenerate-monthly-snapshots')
+  regenerateMonthlySnapshots(
+    @CurrentUserParam() user: CurrentUser,
+    @Body() body: RegenerateMonthlySnapshotsBody,
+  ) {
+    if (body.startMonth) {
+      return this.monthlySnapshotService.regenerateSnapshotsFromMonth(
+        user.id,
+        body.accountId,
+        body.startMonth,
+      );
+    }
+
+    return this.monthlySnapshotService.generateMonthlySnapshots(user.id, body.accountId);
+  }
+
+  @Post('recalculate-metrics')
+  async recalculateMetrics(@CurrentUserParam() user: CurrentUser) {
+    const data = await this.portfolioAnalyticsService.getAnalytics(user.id);
+    return {
+      success: true,
+      summary: data.summary,
+      warnings: data.warnings,
+      runAt: new Date().toISOString(),
+    };
   }
 }

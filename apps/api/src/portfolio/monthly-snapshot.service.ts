@@ -9,6 +9,7 @@ import { HistoricalPriceService } from '../market-data/historical-price.service'
 import { PrismaService } from '../prisma/prisma.service';
 
 const DEFAULT_ACCOUNT_ID = 'ALL';
+const DEFAULT_USER_ID = 'default_user';
 
 const EVENT_ORDER: Prisma.TransactionEventOrderByWithRelationInput[] = [
   { tradeDate: 'asc' },
@@ -82,17 +83,21 @@ export class MonthlySnapshotService {
     private readonly historicalPriceService: HistoricalPriceService,
   ) {}
 
-  private async findEvents(accountId: string) {
+  private async findEvents(userId: string, accountId: string) {
     const events = await this.prisma.transactionEvent.findMany({
-      where: accountId === DEFAULT_ACCOUNT_ID ? undefined : { accountId },
+      where:
+        accountId === DEFAULT_ACCOUNT_ID
+          ? { userId }
+          : { userId, accountId },
       orderBy: EVENT_ORDER,
     });
 
     return deduplicateDashboardEvents(events).events;
   }
 
-  private async findImportFiles() {
+  private async findImportFiles(userId: string) {
     return this.prisma.importFile.findMany({
+      where: { userId },
       orderBy: [{ periodEnd: 'asc' }, { createdAt: 'asc' }],
     });
   }
@@ -103,13 +108,16 @@ export class MonthlySnapshotService {
    * 这个方法的签名已经按后续增量重算设计：外部只需要给 accountId。
    * 等数据量变大时，可以把内部实现替换成“读取上月快照 + 只应用后续事件”，调用方不需要改。
    */
-  async generateMonthlySnapshots(accountId = DEFAULT_ACCOUNT_ID) {
-    const events = await this.findEvents(accountId);
+  async generateMonthlySnapshots(
+    userId = DEFAULT_USER_ID,
+    accountId = DEFAULT_ACCOUNT_ID,
+  ) {
+    const events = await this.findEvents(userId, accountId);
 
     if (events.length === 0) {
       await this.prisma.$transaction([
-        this.prisma.positionMonthlySnapshot.deleteMany({ where: { accountId } }),
-        this.prisma.portfolioMonthlySnapshot.deleteMany({ where: { accountId } }),
+        this.prisma.positionMonthlySnapshot.deleteMany({ where: { userId, accountId } }),
+        this.prisma.portfolioMonthlySnapshot.deleteMany({ where: { userId, accountId } }),
       ]);
       return { generatedMonths: 0, warnings: [] };
     }
@@ -117,7 +125,7 @@ export class MonthlySnapshotService {
     const firstMonth = getMonthKey(events[0].tradeDate);
     const lastMonth = getMonthKey(events[events.length - 1].tradeDate);
 
-    return this.rebuildSnapshots(accountId, firstMonth, firstMonth, lastMonth);
+    return this.rebuildSnapshots(userId, accountId, firstMonth, firstMonth, lastMonth);
   }
 
   /**
@@ -127,13 +135,14 @@ export class MonthlySnapshotService {
    * 之后的快照。未来可以在这里接入“上一个月快照作为起点”的增量算法。
    */
   async regenerateSnapshotsFromMonth(
+    userId = DEFAULT_USER_ID,
     accountId = DEFAULT_ACCOUNT_ID,
-    startMonth: string,
+    startMonth = '1970-01',
   ) {
-    const events = await this.findEvents(accountId);
+    const events = await this.findEvents(userId, accountId);
 
     if (events.length === 0) {
-      return this.generateMonthlySnapshots(accountId);
+      return this.generateMonthlySnapshots(userId, accountId);
     }
 
     const firstMonth = getMonthKey(events[0].tradeDate);
@@ -141,6 +150,7 @@ export class MonthlySnapshotService {
     const normalizedStartMonth = startMonth < firstMonth ? firstMonth : startMonth;
 
     return this.rebuildSnapshots(
+      userId,
       accountId,
       normalizedStartMonth,
       firstMonth,
@@ -149,14 +159,15 @@ export class MonthlySnapshotService {
   }
 
   private async rebuildSnapshots(
+    userId: string,
     accountId: string,
     deleteFromMonth: string,
     calculationStartMonth: string,
     calculationEndMonth: string,
   ) {
     const [events, importFiles] = await Promise.all([
-      this.findEvents(accountId),
-      this.findImportFiles(),
+      this.findEvents(userId, accountId),
+      this.findImportFiles(userId),
     ]);
     const today = toDateOnly(new Date());
     const months = buildMonthRange(calculationStartMonth, calculationEndMonth);
@@ -192,12 +203,14 @@ export class MonthlySnapshotService {
           position.symbol,
           monthStart(month),
           snapshotDate,
+          userId,
         );
         price.warnings.forEach((warning) => warnings.add(warning));
 
         if (!price.close || !price.currency) {
           hasMissingMarketValue = true;
           positionRows.push({
+            userId,
             accountId,
             month,
             symbol: position.symbol,
@@ -222,6 +235,7 @@ export class MonthlySnapshotService {
         stockMarketValue = stockMarketValue.plus(marketValue);
 
         positionRows.push({
+          userId,
           accountId,
           month,
           symbol: position.symbol,
@@ -243,6 +257,7 @@ export class MonthlySnapshotService {
 
       if (month >= deleteFromMonth) {
         portfolioRows.push({
+          userId,
           accountId,
           month,
           snapshotDate,
@@ -265,10 +280,10 @@ export class MonthlySnapshotService {
 
     await this.prisma.$transaction(async (tx) => {
       await tx.positionMonthlySnapshot.deleteMany({
-        where: { accountId, month: { gte: deleteFromMonth } },
+        where: { userId, accountId, month: { gte: deleteFromMonth } },
       });
       await tx.portfolioMonthlySnapshot.deleteMany({
-        where: { accountId, month: { gte: deleteFromMonth } },
+        where: { userId, accountId, month: { gte: deleteFromMonth } },
       });
 
       if (portfolioRows.length > 0) {

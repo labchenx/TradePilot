@@ -18,6 +18,7 @@ import {
 } from './portfolio-positions.service';
 
 const DEFAULT_ACCOUNT_ID = 'ALL';
+const DEFAULT_USER_ID = 'default_user';
 const EVENT_ORDER: Prisma.TransactionEventOrderByWithRelationInput[] = [
   { tradeDate: 'asc' },
   { rawRowIndex: 'asc' },
@@ -129,12 +130,14 @@ export class PortfolioAnalyticsService {
     private readonly portfolioPositionsService: PortfolioPositionsService,
   ) {}
 
-  private async findEvents() {
+  private async findEvents(userId: string) {
     const [rows, importFiles] = await Promise.all([
       this.prisma.transactionEvent.findMany({
+        where: { userId },
         orderBy: EVENT_ORDER,
       }),
       this.prisma.importFile.findMany({
+        where: { userId },
         orderBy: [{ periodEnd: 'asc' }, { createdAt: 'asc' }],
       }),
     ]);
@@ -146,23 +149,25 @@ export class PortfolioAnalyticsService {
     };
   }
 
-  private async findCashFlows() {
+  private async findCashFlows(userId: string) {
     return this.prisma.cashFlow.findMany({
       where: {
+        userId,
         type: { in: [CashFlowType.DEPOSIT, CashFlowType.WITHDRAWAL] },
       },
       orderBy: [{ flowDate: 'asc' }, { createdAt: 'asc' }],
     });
   }
 
-  private async buildAssetTrend(warnings: Set<string>) {
+  private async buildAssetTrend(userId: string, warnings: Set<string>) {
     const [snapshots, missingPriceRows] = await Promise.all([
       this.prisma.portfolioMonthlySnapshot.findMany({
-        where: { accountId: DEFAULT_ACCOUNT_ID },
+        where: { userId, accountId: DEFAULT_ACCOUNT_ID },
         orderBy: { month: 'asc' },
       }),
       this.prisma.positionMonthlySnapshot.findMany({
         where: {
+          userId,
           accountId: DEFAULT_ACCOUNT_ID,
           marketPrice: null,
         },
@@ -276,12 +281,12 @@ export class PortfolioAnalyticsService {
       .sort(compareNullablePnl);
   }
 
-  async getAnalytics(): Promise<PortfolioAnalyticsResponse> {
+  async getAnalytics(userId = DEFAULT_USER_ID): Promise<PortfolioAnalyticsResponse> {
     const warnings = new Set<string>();
     const [positionData, eventResult, cashFlows] = await Promise.all([
-      this.portfolioPositionsService.getPositions(),
-      this.findEvents(),
-      this.findCashFlows(),
+      this.portfolioPositionsService.getPositions(userId),
+      this.findEvents(userId),
+      this.findCashFlows(userId),
     ]);
     const { events } = eventResult;
     eventResult.warnings.forEach((warning) => warnings.add(warning));
@@ -318,7 +323,7 @@ export class PortfolioAnalyticsService {
         : totalReturn.div(cashMetrics.netDeposit);
 
     const [assetTrend, monthlyCashFlows] = await Promise.all([
-      this.buildAssetTrend(warnings),
+      this.buildAssetTrend(userId, warnings),
       Promise.resolve(this.buildMonthlyCashFlows(cashFlows, warnings)),
     ]);
     const allocation = this.buildAllocation(positionData.holdings);

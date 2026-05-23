@@ -5,6 +5,7 @@ describe('TransactionEventsService', () => {
   it('returns paginated transaction events', async () => {
     const row = {
       id: 'event_1',
+      userId: 'default_user',
       importFileId: 'import_1',
       source: 'IBKR_CSV',
       sourceFileName: 'sample.csv',
@@ -52,4 +53,3 @@ describe('TransactionEventsService', () => {
     });
   });
 });
-

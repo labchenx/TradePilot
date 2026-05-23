@@ -8,6 +8,7 @@ function createEvent(
 ): Prisma.TransactionEventGetPayload<object> {
   return {
     id: `event-${overrides.rawRowIndex ?? 1}`,
+    userId: overrides.userId ?? 'default_user',
     importFileId: overrides.importFileId ?? 'import-1',
     source: 'IBKR_CSV',
     sourceEventHash: overrides.sourceEventHash ?? null,
@@ -42,6 +43,7 @@ function createCashFlow(
 ): Prisma.CashFlowGetPayload<object> {
   return {
     id: overrides.id ?? 'cash-1',
+    userId: overrides.userId ?? 'default_user',
     accountId: overrides.accountId ?? 'U123',
     type: overrides.type ?? CashFlowType.DEPOSIT,
     amount: overrides.amount ?? new Prisma.Decimal(1000),
@@ -61,6 +63,7 @@ function createSnapshot(
 ): Prisma.PortfolioMonthlySnapshotGetPayload<object> {
   return {
     id: overrides.id ?? 'snapshot-1',
+    userId: overrides.userId ?? 'default_user',
     accountId: overrides.accountId ?? 'ALL',
     month: overrides.month ?? '2026-01',
     snapshotDate:
@@ -82,6 +85,7 @@ function createImportFile(
 ): Prisma.ImportFileGetPayload<object> {
   return {
     id: overrides.id ?? 'import-1',
+    userId: overrides.userId ?? 'default_user',
     filename: overrides.filename ?? 'sample.csv',
     source: overrides.source ?? 'IBKR_CSV',
     fileHash: overrides.fileHash ?? 'file-hash-1',

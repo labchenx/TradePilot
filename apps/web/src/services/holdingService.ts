@@ -3,8 +3,7 @@ import type {
   HoldingsData,
   HoldingsResponseApiDto,
 } from '@/types';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4100';
+import { apiFetch } from './apiClient';
 
 const holdingColors = [
   '#10b981',
@@ -18,7 +17,7 @@ const holdingColors = [
 ];
 
 async function requestApi<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+  const response = await apiFetch(path);
 
   if (!response.ok) {
     throw new Error(`Holdings API request failed: ${response.status}`);

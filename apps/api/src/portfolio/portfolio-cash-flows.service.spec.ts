@@ -45,6 +45,7 @@ describe('PortfolioCashFlowsService', () => {
 
     expect(prisma.cashFlow.findMany).toHaveBeenCalledWith({
       where: {
+        userId: 'default_user',
         type: { in: [CashFlowType.DEPOSIT, CashFlowType.WITHDRAWAL] },
       },
       orderBy: [{ flowDate: 'desc' }, { createdAt: 'desc' }],

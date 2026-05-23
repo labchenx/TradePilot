@@ -69,11 +69,82 @@ enum CashFlowType {
   WITHDRAWAL
 }
 
+enum MarketDataProvider {
+  YAHOO_FINANCE
+}
+
+enum DuplicateStrategy {
+  SKIP
+  UPDATE_EMPTY_FIELDS
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  importFiles               ImportFile[]
+  importJobs                ImportJob[]
+  importRecords             ImportRecord[]
+  transactionEvents         TransactionEvent[]
+  cashFlows                 CashFlow[]
+  portfolioMonthlySnapshots PortfolioMonthlySnapshot[]
+  positionMonthlySnapshots  PositionMonthlySnapshot[]
+  settings                  UserSettings?
+  symbolMappings            SymbolMapping[]
+
+  @@map("users")
+}
+
+model UserSettings {
+  id                                  String             @id @default(cuid())
+  userId                              String             @unique
+  user                                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  marketDataProvider                  MarketDataProvider @default(YAHOO_FINANCE)
+  enableQuoteCache                    Boolean            @default(true)
+  quoteCacheTtlMinutes                Int                @default(60)
+  enableHistoryCache                  Boolean            @default(true)
+  defaultImportSource                 ImportSource        @default(IBKR_CSV)
+  duplicateStrategy                   DuplicateStrategy  @default(UPDATE_EMPTY_FIELDS)
+  autoRefreshQuotesAfterImport        Boolean            @default(true)
+  autoRegenerateSnapshotsAfterImport  Boolean            @default(true)
+  autoRecalculateMetricsAfterImport   Boolean            @default(true)
+  saveRawData                         Boolean            @default(true)
+  createdAt                           DateTime           @default(now())
+  updatedAt                           DateTime           @updatedAt
+
+  @@index([userId])
+  @@map("user_settings")
+}
+
+model SymbolMapping {
+  id           String             @id @default(cuid())
+  userId       String
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceSymbol String
+  targetSymbol String
+  provider     MarketDataProvider @default(YAHOO_FINANCE)
+  note         String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@unique([userId, provider, sourceSymbol])
+  @@index([userId])
+  @@index([sourceSymbol])
+  @@index([targetSymbol])
+  @@map("symbol_mappings")
+}
+
 model ImportFile {
   id                String              @id @default(cuid())
+  userId            String
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   filename          String
   source            ImportSource        @default(IBKR_CSV)
-  fileHash          String              @unique
+  fileHash          String
   periodStart       DateTime?           @db.Date
   periodEnd         DateTime?           @db.Date
   status            ImportFileStatus    @default(PREVIEWED)
@@ -83,11 +154,15 @@ model ImportFile {
   createdAt         DateTime            @default(now())
   confirmedAt       DateTime?
 
+  @@unique([userId, fileHash])
+  @@index([userId])
   @@map("import_files")
 }
 
 model ImportJob {
   id             String             @id @default(cuid())
+  userId         String
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   source         ImportSource        @default(IBKR_CSV)
   status         ImportJobStatus     @default(PREVIEWED)
   fileNames      Json
@@ -105,6 +180,7 @@ model ImportJob {
   updatedAt      DateTime            @updatedAt
   records        ImportRecord[]
 
+  @@index([userId])
   @@index([createdAt])
   @@index([status])
   @@map("import_jobs")
@@ -112,6 +188,8 @@ model ImportJob {
 
 model ImportRecord {
   id             String             @id @default(cuid())
+  userId         String
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   importJobId    String
   importJob      ImportJob          @relation(fields: [importJobId], references: [id], onDelete: Cascade)
   recordType     ImportRecordType
@@ -122,6 +200,7 @@ model ImportRecord {
   errorMessage   String?
   createdAt      DateTime           @default(now())
 
+  @@index([userId])
   @@index([importJobId])
   @@index([sourceHash])
   @@index([recordType])
@@ -130,10 +209,12 @@ model ImportRecord {
 
 model TransactionEvent {
   id                 String        @id @default(cuid())
+  userId             String
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   importFileId       String
   importFile         ImportFile    @relation(fields: [importFileId], references: [id])
   source             ImportSource
-  sourceEventHash    String?       @unique
+  sourceEventHash    String?
   sourceFileName     String
   sourceSection      String
   rawRowIndex        Int
@@ -158,7 +239,9 @@ model TransactionEvent {
   isTaxOrFee         Boolean
   createdAt          DateTime      @default(now())
 
-  @@unique([importFileId, rawRowIndex])
+  @@unique([userId, sourceEventHash])
+  @@unique([userId, importFileId, rawRowIndex])
+  @@index([userId])
   @@index([tradeDate])
   @@index([eventType])
   @@map("transaction_events")
@@ -166,18 +249,22 @@ model TransactionEvent {
 
 model CashFlow {
   id           String       @id @default(cuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   accountId    String?
   type         CashFlowType
   amount       Decimal      @db.Decimal(30, 12)
   currency     String
   flowDate     DateTime     @db.Date
   source       String?
-  sourceHash   String?      @unique
+  sourceHash   String?
   rawData      Json?
   remark       String?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
+  @@unique([userId, sourceHash])
+  @@index([userId])
   @@index([flowDate])
   @@index([type])
   @@map("cash_flows")
@@ -220,6 +307,8 @@ model PriceHistory {
 
 model PortfolioMonthlySnapshot {
   id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   accountId         String
   month             String
   snapshotDate      DateTime @db.Date
@@ -233,13 +322,16 @@ model PortfolioMonthlySnapshot {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  @@unique([accountId, month])
+  @@unique([userId, accountId, month])
+  @@index([userId])
   @@index([accountId, snapshotDate])
   @@map("portfolio_monthly_snapshots")
 }
 
 model PositionMonthlySnapshot {
   id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   accountId     String
   month         String
   symbol        String
@@ -252,7 +344,8 @@ model PositionMonthlySnapshot {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  @@unique([accountId, month, symbol])
+  @@unique([userId, accountId, month, symbol])
+  @@index([userId])
   @@index([accountId, month])
   @@index([symbol, month])
   @@map("position_monthly_snapshots")

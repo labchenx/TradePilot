@@ -10,6 +10,8 @@ import {
   PortfolioTransactionsService,
 } from './portfolio-transactions.service';
 
+const DEFAULT_USER_ID = 'default_user';
+
 export interface TradingBehaviorSummary {
   totalTrades: number;
   buyTrades: number;
@@ -169,12 +171,18 @@ export class PortfolioTradingBehaviorService {
    * source-derived IBKR realizedPnl values as the Transactions detail page.
    */
   async getTradingBehavior(
-    query: GetTradingBehaviorDto = {},
+    userIdOrQuery: string | GetTradingBehaviorDto = DEFAULT_USER_ID,
+    maybeQuery: GetTradingBehaviorDto = {},
   ): Promise<TradingBehaviorResponse> {
+    const userId =
+      typeof userIdOrQuery === 'string' ? userIdOrQuery : DEFAULT_USER_ID;
+    const query =
+      typeof userIdOrQuery === 'string' ? maybeQuery : userIdOrQuery;
     const range = query.range ?? 'ALL';
     const symbol = query.symbol?.trim();
     const { transactions, warnings: sourceWarnings } =
       await this.portfolioTransactionsService.listTransactionItems({
+        userId,
         symbol: symbol || undefined,
         startDate: getRangeStartDate(range),
       });

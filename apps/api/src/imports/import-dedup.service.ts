@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { DuplicateStrategy, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ImportPreviewRecord,
@@ -44,13 +44,19 @@ function canFillExistingEvent(
 export class ImportDedupService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async markPreviewRecords(records: ImportPreviewRecord[]) {
+  async markPreviewRecords(userId: string, records: ImportPreviewRecord[]) {
+    const settings = await this.prisma.userSettings.findUnique({
+      where: { userId },
+      select: { duplicateStrategy: true },
+    });
+    const duplicateStrategy =
+      settings?.duplicateStrategy ?? DuplicateStrategy.UPDATE_EMPTY_FIELDS;
     const hashes = records
       .map((record) => record.sourceHash)
       .filter((hash): hash is string => typeof hash === 'string');
 
     const existingByHash = await this.prisma.transactionEvent.findMany({
-      where: { sourceEventHash: { in: hashes } },
+      where: { userId, sourceEventHash: { in: hashes } },
       select: { id: true, sourceEventHash: true },
     });
     const exactDuplicates = new Map(
@@ -80,19 +86,22 @@ export class ImportDedupService {
       }
       seenInCurrentPreview.set(record.sourceHash, record.tempId);
 
-      const updateTarget = await this.findUpdateCandidate(record.data);
-      if (updateTarget) {
-        record.status = 'UPDATE';
-        record.data.existingEventId = updateTarget.id;
+      if (duplicateStrategy === DuplicateStrategy.UPDATE_EMPTY_FIELDS) {
+        const updateTarget = await this.findUpdateCandidate(userId, record.data);
+        if (updateTarget) {
+          record.status = 'UPDATE';
+          record.data.existingEventId = updateTarget.id;
+        }
       }
     }
 
     return records;
   }
 
-  private async findUpdateCandidate(data: NormalizedImportRecordData) {
+  private async findUpdateCandidate(userId: string, data: NormalizedImportRecordData) {
     const candidates = await this.prisma.transactionEvent.findMany({
       where: {
+        userId,
         accountId: data.accountId,
         tradeDate: new Date(`${data.tradeDate}T00:00:00.000Z`),
         eventType: data.eventType,

@@ -75,6 +75,7 @@ describe('ImportConfirmService', () => {
       importJob: {
         findUnique: jest.fn(async () => ({
           id: 'job_preview_1',
+          userId: 'default_user',
           status: 'PREVIEWED',
           previewRecords: [record],
         })),

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
+import { SettingsService } from '../settings/settings.service';
 import { QuoteCacheService } from './quote-cache.service';
 import { MarketQuote, MarketQuoteResult } from './quote.types';
 import { normalizeSymbolForYahoo } from './symbol-normalizer';
@@ -10,6 +11,7 @@ export class QuoteService {
   constructor(
     private readonly yahooProvider: YahooProvider,
     private readonly quoteCache: QuoteCacheService,
+    private readonly settingsService?: SettingsService,
   ) {}
 
   /**
@@ -22,12 +24,21 @@ export class QuoteService {
    *
    * 这样 Dashboard 依赖外部 API 时会更稳：第三方接口抖动不会直接让资产指标变成空。
    */
-  async getCurrentQuotes(symbols: string[]): Promise<MarketQuoteResult> {
+  async getCurrentQuotes(
+    symbols: string[],
+    userId?: string,
+  ): Promise<MarketQuoteResult> {
     const uniqueSymbols = Array.from(
       new Set(symbols.map((symbol) => symbol.trim()).filter(Boolean)),
     );
+    const providerOverrides =
+      await this.settingsService?.resolveProviderSymbols(userId, uniqueSymbols);
     const normalizedByOriginal = new Map(
-      uniqueSymbols.map((symbol) => [symbol, normalizeSymbolForYahoo(symbol)]),
+      uniqueSymbols.map((symbol) => [
+        symbol,
+        providerOverrides?.get(symbol.trim().toUpperCase()) ??
+          normalizeSymbolForYahoo(symbol),
+      ]),
     );
     const providerSymbols = Array.from(new Set(normalizedByOriginal.values()));
     const warnings: string[] = [];

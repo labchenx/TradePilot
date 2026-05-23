@@ -7,6 +7,7 @@ function createEvent(
 ): DashboardEventRow {
   return {
     id: `event_${overrides.rawRowIndex ?? 1}`,
+    userId: overrides.userId ?? 'default_user',
     importFileId: 'import_1',
     source: 'IBKR_CSV',
     sourceEventHash: null,

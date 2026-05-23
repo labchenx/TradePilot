@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
 import { normalizeSymbolForYahoo } from './symbol-normalizer';
 import { YahooProvider } from './yahoo-provider';
 
@@ -31,6 +32,7 @@ export class HistoricalPriceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly yahooProvider: YahooProvider,
+    private readonly settingsService?: SettingsService,
   ) {}
 
   private async findCachedMonthEndPrice(
@@ -109,8 +111,13 @@ export class HistoricalPriceService {
     symbol: string,
     monthStart: Date,
     snapshotDate: Date,
+    userId?: string,
   ): Promise<MonthEndPriceResult> {
-    const providerSymbol = normalizeSymbolForYahoo(symbol);
+    const mapping = await this.settingsService?.resolveProviderSymbols(userId, [
+      symbol,
+    ]);
+    const providerSymbol =
+      mapping?.get(symbol.trim().toUpperCase()) ?? normalizeSymbolForYahoo(symbol);
     const warnings: string[] = [];
     const cached = await this.findCachedMonthEndPrice(
       symbol,

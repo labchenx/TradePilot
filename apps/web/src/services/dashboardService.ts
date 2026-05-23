@@ -11,8 +11,7 @@ import type {
   ReturnBreakdownApiDto,
   ReturnBreakdownItem,
 } from '@/types';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4100';
+import { apiFetch } from './apiClient';
 
 const allocationColors = [
   '#10b981',
@@ -26,7 +25,7 @@ const allocationColors = [
 ];
 
 async function requestDashboardApi<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+  const response = await apiFetch(path);
 
   if (!response.ok) {
     throw new Error(`Dashboard API request failed: ${response.status}`);
