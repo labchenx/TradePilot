@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Database, History, Trash2 } from 'lucide-react';
+import { Link } from 'react-router';
+import {
+  AlertTriangle,
+  Database,
+  History,
+  Mail,
+  Paperclip,
+  Search,
+  Settings,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { Button, CardShell, PageTitle, Tag } from '@/components/common';
 import {
   ImportInputPanel,
@@ -7,15 +18,23 @@ import {
   ImportResultCard,
   ImportSteps,
 } from '@/components/import';
-import { importService } from '@/services';
+import { importService, settingsService } from '@/services';
 import type {
   ClearDataResponse,
+  ConfirmEmailImportResponse,
+  EmailImportMailStatus,
+  EmailImportPreviewResponse,
+  EmailImportScanRange,
+  EmailPdfTradePreview,
+  EmailSettings,
   ImportConfirmResponse,
   ImportHistoryItem,
   ImportJobDetail,
   ImportPageStatus,
   ImportPreviewResponse,
 } from '@/types';
+
+type ImportTab = 'csv' | 'email';
 
 function getStep(status: ImportPageStatus) {
   if (status === 'previewReady') return 2;
@@ -31,7 +50,32 @@ function statusTone(status: ImportHistoryItem['status']) {
   return 'blue';
 }
 
+function emailStatusTone(status: EmailImportMailStatus) {
+  if (status === 'NEW') return 'green';
+  if (status === 'DUPLICATE') return 'yellow';
+  return 'red';
+}
+
+function scanRangeFromSettings(settings?: EmailSettings | null): EmailImportScanRange {
+  if (settings?.defaultScanRange === 'SCAN_90D') return '90d';
+  if (settings?.defaultScanRange === 'SCAN_30D') return '30d';
+  if (settings?.defaultScanRange === 'SCAN_7D') return '7d';
+  return '3d';
+}
+
+function formatDateTime(value?: string | null) {
+  return value ? new Date(value).toLocaleString() : '--';
+}
+
+function formatBytes(value: number) {
+  if (!value) return '--';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(2)} MB`;
+}
+
 export function ImportPage() {
+  const [activeTab, setActiveTab] = useState<ImportTab>('csv');
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<ImportPageStatus>('idle');
   const [preview, setPreview] = useState<ImportPreviewResponse | null>(null);
@@ -43,6 +87,16 @@ export function ImportPage() {
   const [clearResult, setClearResult] = useState<ClearDataResponse | null>(null);
   const [clearing, setClearing] = useState(false);
   const [deletingHistoryId, setDeletingHistoryId] = useState<string | null>(null);
+  const [emailSettings, setEmailSettings] = useState<EmailSettings | null>(null);
+  const [emailSettingsLoading, setEmailSettingsLoading] = useState(true);
+  const [emailRange, setEmailRange] = useState<EmailImportScanRange>('3d');
+  const [emailScanResult, setEmailScanResult] =
+    useState<EmailImportPreviewResponse | null>(null);
+  const [emailScanning, setEmailScanning] = useState(false);
+  const [emailConfirming, setEmailConfirming] = useState(false);
+  const [emailConfirmResult, setEmailConfirmResult] =
+    useState<ConfirmEmailImportResponse | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   const refreshHistory = async () => {
     try {
@@ -54,7 +108,22 @@ export function ImportPage() {
 
   useEffect(() => {
     void refreshHistory();
+    void loadEmailSettings();
   }, []);
+
+  const loadEmailSettings = async () => {
+    setEmailSettingsLoading(true);
+    try {
+      const settings = await settingsService.getEmailSettings();
+      setEmailSettings(settings);
+      setEmailRange(scanRangeFromSettings(settings));
+    } catch {
+      setEmailSettings(null);
+      setEmailRange('3d');
+    } finally {
+      setEmailSettingsLoading(false);
+    }
+  };
 
   const parsePreview = async () => {
     setStatus('parsing');
@@ -156,46 +225,134 @@ export function ImportPage() {
     }
   };
 
+  const scanIbkrEmails = async () => {
+    setEmailScanning(true);
+    setEmailError(null);
+    setEmailScanResult(null);
+    setEmailConfirmResult(null);
+
+    try {
+      setEmailScanResult(await importService.scanAndPreviewIbkrMails(emailRange));
+      await loadEmailSettings();
+    } catch (scanError) {
+      setEmailError(scanError instanceof Error ? scanError.message : String(scanError));
+    } finally {
+      setEmailScanning(false);
+    }
+  };
+
+  const confirmEmailImport = async () => {
+    if (!emailScanResult?.trades.some((trade) => trade.status === 'NEW')) return;
+
+    setEmailConfirming(true);
+    setEmailError(null);
+    setEmailConfirmResult(null);
+
+    try {
+      const response = await importService.confirmEmailPdfImport(
+        emailScanResult.trades,
+      );
+      setEmailConfirmResult(response);
+      await Promise.all([refreshHistory(), loadEmailSettings()]);
+      setEmailScanResult({
+        ...emailScanResult,
+        trades: emailScanResult.trades.map((trade) =>
+          trade.status === 'NEW' ? { ...trade, status: 'DUPLICATE' } : trade,
+        ),
+      });
+    } catch (confirmError) {
+      setEmailError(
+        confirmError instanceof Error ? confirmError.message : String(confirmError),
+      );
+    } finally {
+      setEmailConfirming(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <PageTitle
         title={'\u6570\u636e\u5bfc\u5165 Data Import'}
-        description="IBKR CSV preview, deduplication, confirmation, and import history"
+        description="IBKR CSV import and Email PDF trade preview"
       />
 
-      <ImportSteps step={getStep(status)} />
+      <div className="flex flex-wrap gap-2 rounded-xl border border-neutral-200 bg-white p-1 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+        <button
+          type="button"
+          onClick={() => setActiveTab('csv')}
+          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'csv'
+              ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
+              : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800'
+          }`}
+        >
+          <Upload className="h-4 w-4" />
+          CSV Import
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('email')}
+          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'email'
+              ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
+              : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800'
+          }`}
+        >
+          <Mail className="h-4 w-4" />
+          Email Import / 邮件导入
+        </button>
+      </div>
 
-      {error ? (
+      {activeTab === 'csv' ? <ImportSteps step={getStep(status)} /> : null}
+
+      {activeTab === 'csv' && error ? (
         <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
       ) : null}
 
-      <CardShell className="overflow-hidden">
-        {status === 'success' && result ? (
-          <ImportResultCard result={result} onImportAnother={importAnother} />
-        ) : preview && status !== 'idle' && status !== 'parsing' ? (
-          <ImportPreviewTable
-            files={preview.files}
-            records={preview.records}
-            summary={preview.summary}
-            confirming={status === 'confirming'}
-            errorMessage={error}
-            onBack={importAnother}
-            onConfirm={confirmImport}
-          />
-        ) : (
-          <ImportInputPanel
-            files={files}
-            disabled={status === 'parsing'}
-            onFilesChange={setFiles}
-            onParse={parsePreview}
-          />
-        )}
-      </CardShell>
+      {activeTab === 'csv' ? (
+        <CardShell className="overflow-hidden">
+          {status === 'success' && result ? (
+            <ImportResultCard result={result} onImportAnother={importAnother} />
+          ) : preview && status !== 'idle' && status !== 'parsing' ? (
+            <ImportPreviewTable
+              files={preview.files}
+              records={preview.records}
+              summary={preview.summary}
+              confirming={status === 'confirming'}
+              errorMessage={error}
+              onBack={importAnother}
+              onConfirm={confirmImport}
+            />
+          ) : (
+            <ImportInputPanel
+              files={files}
+              disabled={status === 'parsing'}
+              onFilesChange={setFiles}
+              onParse={parsePreview}
+            />
+          )}
+        </CardShell>
+      ) : (
+        <EmailImportPanel
+          settings={emailSettings}
+          loading={emailSettingsLoading}
+          range={emailRange}
+          scanning={emailScanning}
+          result={emailScanResult}
+          confirmResult={emailConfirmResult}
+          error={emailError}
+          onRangeChange={setEmailRange}
+          onRefreshSettings={loadEmailSettings}
+          onScan={scanIbkrEmails}
+          onConfirm={confirmEmailImport}
+          confirming={emailConfirming}
+        />
+      )}
 
-      {preview?.warnings.length ? (
+      {activeTab === 'csv' && preview?.warnings.length ? (
         <CardShell className="p-5">
           <h3 className="mb-3 font-semibold text-neutral-900 dark:text-white">
             {'\u89e3\u6790\u8b66\u544a'}
@@ -372,6 +529,485 @@ export function ImportPage() {
           </div>
         </CardShell>
       ) : null}
+    </div>
+  );
+}
+
+function EmailImportPanel({
+  settings,
+  loading,
+  range,
+  scanning,
+  confirming,
+  result,
+  confirmResult,
+  error,
+  onRangeChange,
+  onRefreshSettings,
+  onScan,
+  onConfirm,
+}: {
+  settings: EmailSettings | null;
+  loading: boolean;
+  range: EmailImportScanRange;
+  scanning: boolean;
+  confirming: boolean;
+  result: EmailImportPreviewResponse | null;
+  confirmResult: ConfirmEmailImportResponse | null;
+  error: string | null;
+  onRangeChange: (range: EmailImportScanRange) => void;
+  onRefreshSettings: () => void;
+  onScan: () => void;
+  onConfirm: () => void;
+}) {
+  const isReady =
+    settings?.email &&
+    settings.hasAuthSecret &&
+    settings.status === 'CONNECTED';
+
+  return (
+    <div className="space-y-6">
+      <CardShell className="p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-semibold text-neutral-900 dark:text-white">
+              <Mail className="h-5 w-5 text-blue-500" />
+              Email Import / 邮件导入
+            </h3>
+            <p className="mt-1 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
+              扫描当前邮箱中的 IBKR 交易报告邮件，提取 PDF 文本并生成交易预览，不写入交易表。
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={onRefreshSettings}>
+            刷新邮箱配置
+          </Button>
+        </div>
+
+        {loading ? (
+          <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-500 dark:border-neutral-800 dark:bg-neutral-950/40 dark:text-neutral-400">
+            正在读取邮箱配置...
+          </div>
+        ) : settings ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-4">
+            <InfoTile label="邮箱服务商" value={settings.providerLabel} />
+            <InfoTile label="邮箱地址" value={settings.email ?? '--'} />
+            <InfoTile label="连接状态" value={settings.status} />
+            <InfoTile label="最近同步" value={formatDateTime(settings.lastSyncAt)} />
+          </div>
+        ) : null}
+
+        {!loading && !isReady ? (
+          <div className="mt-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm leading-6 text-yellow-800 dark:border-yellow-900/60 dark:bg-yellow-950/30 dark:text-yellow-200">
+            <p>请先到 Settings / Email 中配置邮箱并测试连接成功。</p>
+            <Link
+              className="mt-3 inline-flex items-center gap-2 font-medium text-yellow-900 underline underline-offset-4 dark:text-yellow-100"
+              to="/settings"
+            >
+              <Settings className="h-4 w-4" />
+              前往邮箱设置
+            </Link>
+          </div>
+        ) : null}
+
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              扫描范围
+            </span>
+            <select
+              value={range}
+              onChange={(event) =>
+                onRangeChange(event.target.value as EmailImportScanRange)
+              }
+              className="h-10 min-w-40 rounded-lg border border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none focus:border-blue-500 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white"
+            >
+              <option value="3d">最近 3 天</option>
+              <option value="7d">最近 7 天</option>
+              <option value="30d">最近 30 天</option>
+              <option value="90d">最近 90 天</option>
+            </select>
+          </label>
+
+          <Button disabled={!isReady || scanning} onClick={onScan}>
+            <Search className="mr-2 h-4 w-4" />
+            {scanning ? '解析中...' : '扫描并解析 IBKR 邮件'}
+          </Button>
+        </div>
+
+        <p className="mt-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+          本阶段只提取 PDF 文本并生成预览，不确认导入，不写入 trades / cash_flows，不标记已读、删除或移动邮件。
+        </p>
+      </CardShell>
+
+      {error ? (
+        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      ) : null}
+
+      {scanning ? (
+        <CardShell className="p-5 text-sm text-neutral-600 dark:text-neutral-300">
+          正在通过 IMAP 只读扫描 INBOX，并解析 IBKR PDF 附件，请稍等...
+        </CardShell>
+      ) : null}
+
+      {result ? (
+        <EmailScanResult
+          result={result}
+          confirmResult={confirmResult}
+          confirming={confirming}
+          onConfirm={onConfirm}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function EmailScanResult({
+  result,
+  confirmResult,
+  confirming,
+  onConfirm,
+}: {
+  result: EmailImportPreviewResponse;
+  confirmResult: ConfirmEmailImportResponse | null;
+  confirming: boolean;
+  onConfirm: () => void;
+}) {
+  const newTradeCount = result.trades.filter((trade) => trade.status === 'NEW').length;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <InfoTile label="Scanned" value={result.scannedCount} />
+        <InfoTile label="Matched" value={result.matchedCount} />
+        <InfoTile label="PDF Attachments" value={result.attachmentCount} />
+        <InfoTile label="Parsed Trades" value={result.parsedTradeCount} />
+        <InfoTile label="Duplicate" value={result.duplicateCount} />
+        <InfoTile label="Error" value={result.errorCount} />
+      </div>
+
+      <CardShell className="p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="font-semibold text-neutral-900 dark:text-white">
+              确认导入
+            </h3>
+            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+              只会写入 NEW 交易，DUPLICATE 和 ERROR 会跳过并保留审计记录。
+            </p>
+          </div>
+          <Button disabled={newTradeCount === 0 || confirming} onClick={onConfirm}>
+            {confirming ? '确认中...' : `确认导入 ${newTradeCount} 条 NEW 交易`}
+          </Button>
+        </div>
+        {confirmResult ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-4">
+            <InfoTile label="Import Job" value={confirmResult.importJobId} />
+            <InfoTile label="Inserted" value={confirmResult.insertedCount} />
+            <InfoTile label="Duplicate" value={confirmResult.duplicateCount} />
+            <InfoTile label="Error" value={confirmResult.errorCount} />
+          </div>
+        ) : null}
+      </CardShell>
+
+      {result.warnings.length ? (
+        <CardShell className="p-5">
+          <h3 className="mb-3 font-semibold text-neutral-900 dark:text-white">
+            扫描提示
+          </h3>
+          <div className="space-y-2 text-sm text-neutral-600 dark:text-neutral-300">
+            {result.warnings.map((warning) => (
+              <p key={warning}>{warning}</p>
+            ))}
+          </div>
+        </CardShell>
+      ) : null}
+
+      <CardShell className="overflow-hidden">
+        <div className="border-b border-neutral-200 p-5 dark:border-neutral-800">
+          <h3 className="flex items-center gap-2 font-semibold text-neutral-900 dark:text-white">
+            <Mail className="h-5 w-5 text-blue-500" />
+            IBKR 邮件扫描结果
+          </h3>
+        </div>
+        {result.mails.length === 0 ? (
+          <div className="p-8 text-center text-sm text-neutral-500 dark:text-neutral-400">
+            未找到 IBKR 交易报告邮件
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-neutral-50 text-xs uppercase text-neutral-500 dark:bg-neutral-900/50 dark:text-neutral-400">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Status</th>
+                  <th className="px-5 py-3 font-medium">Subject</th>
+                  <th className="px-5 py-3 font-medium">From</th>
+                  <th className="px-5 py-3 font-medium">Received At</th>
+                  <th className="px-5 py-3 font-medium">Attachment</th>
+                  <th className="px-5 py-3 font-medium">Message ID</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                {result.mails.map((mail) => (
+                  <tr key={mail.messageId}>
+                    <td className="px-5 py-4 align-top">
+                      <Tag color={emailStatusTone(mail.status)}>{mail.status}</Tag>
+                      {mail.errorMessage ? (
+                        <p className="mt-2 max-w-xs text-xs text-red-600 dark:text-red-300">
+                          {mail.errorMessage}
+                        </p>
+                      ) : null}
+                    </td>
+                    <td className="max-w-sm px-5 py-4 align-top font-medium text-neutral-900 dark:text-white">
+                      {mail.subject}
+                    </td>
+                    <td className="max-w-xs px-5 py-4 align-top text-neutral-600 dark:text-neutral-300">
+                      {mail.from || '--'}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 align-top text-neutral-600 dark:text-neutral-300">
+                      {formatDateTime(mail.receivedAt)}
+                    </td>
+                    <td className="max-w-xs px-5 py-4 align-top text-neutral-600 dark:text-neutral-300">
+                      {mail.attachments.map((attachment) => attachment.filename).join(', ') || '--'}
+                    </td>
+                    <td className="max-w-xs truncate px-5 py-4 align-top text-xs text-neutral-500">
+                      {mail.messageId}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardShell>
+
+      {result.diagnostics?.length ? (
+        <EmailScanDiagnostics diagnostics={result.diagnostics} />
+      ) : null}
+
+      <EmailTradePreviewTable trades={result.trades} />
+
+      {result.mails.some((mail) => mail.attachments.length > 0) ? (
+        <CardShell className="overflow-hidden">
+          <div className="border-b border-neutral-200 p-5 dark:border-neutral-800">
+            <h3 className="flex items-center gap-2 font-semibold text-neutral-900 dark:text-white">
+              <Paperclip className="h-5 w-5 text-blue-500" />
+              PDF 附件列表
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-neutral-50 text-xs uppercase text-neutral-500 dark:bg-neutral-900/50 dark:text-neutral-400">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Filename</th>
+                  <th className="px-5 py-3 font-medium">Content Type</th>
+                  <th className="px-5 py-3 text-right font-medium">Size</th>
+                  <th className="px-5 py-3 font-medium">Attachment Hash</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                {result.mails.flatMap((mail) =>
+                  mail.attachments.map((attachment) => (
+                    <tr key={`${mail.messageId}-${attachment.attachmentHash}`}>
+                      <td className="px-5 py-3 font-medium text-neutral-900 dark:text-white">
+                        {attachment.filename}
+                      </td>
+                      <td className="px-5 py-3 text-neutral-600 dark:text-neutral-300">
+                        {attachment.contentType}
+                      </td>
+                      <td className="px-5 py-3 text-right tabular-nums text-neutral-600 dark:text-neutral-300">
+                        {formatBytes(attachment.size)}
+                      </td>
+                      <td className="max-w-md truncate px-5 py-3 text-xs text-neutral-500">
+                        {attachment.attachmentHash}
+                      </td>
+                    </tr>
+                  )),
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardShell>
+      ) : null}
+    </div>
+  );
+}
+
+function EmailScanDiagnostics({
+  diagnostics,
+}: {
+  diagnostics: NonNullable<EmailImportPreviewResponse['diagnostics']>;
+}) {
+  return (
+    <CardShell className="overflow-hidden">
+      <div className="border-b border-neutral-200 p-5 dark:border-neutral-800">
+        <h3 className="font-semibold text-neutral-900 dark:text-white">
+          扫描诊断
+        </h3>
+        <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+          仅展示邮件头部和附件元信息，不包含正文、PDF 内容或授权码。
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1120px] text-left text-sm">
+          <thead className="bg-neutral-50 text-xs uppercase text-neutral-500 dark:bg-neutral-900/50 dark:text-neutral-400">
+            <tr>
+              <th className="px-5 py-3 font-medium">UID</th>
+              <th className="px-5 py-3 font-medium">Subject</th>
+              <th className="px-5 py-3 font-medium">From / Sender</th>
+              <th className="px-5 py-3 font-medium">Subject Match</th>
+              <th className="px-5 py-3 font-medium">From Match</th>
+              <th className="px-5 py-3 text-right font-medium">PDF</th>
+              <th className="px-5 py-3 font-medium">Attachments / Body Parts</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
+            {diagnostics.map((item) => (
+              <tr key={item.uid}>
+                <td className="px-5 py-3 text-xs text-neutral-500">{item.uid}</td>
+                <td className="max-w-sm px-5 py-3 font-medium text-neutral-900 dark:text-white">
+                  {item.subject}
+                </td>
+                <td className="max-w-xs px-5 py-3 text-neutral-600 dark:text-neutral-300">
+                  {[item.from, item.sender, item.replyTo].filter(Boolean).join(' | ') ||
+                    '--'}
+                </td>
+                <td className="px-5 py-3">
+                  <Tag color={item.subjectMatches ? 'green' : 'gray'}>
+                    {item.subjectMatches ? 'YES' : 'NO'}
+                  </Tag>
+                </td>
+                <td className="px-5 py-3">
+                  <Tag color={item.fromMatches ? 'green' : 'gray'}>
+                    {item.fromMatches ? 'YES' : 'NO'}
+                  </Tag>
+                </td>
+                <td className="px-5 py-3 text-right tabular-nums">
+                  {item.pdfCandidateCount}
+                </td>
+                <td className="max-w-md px-5 py-3 text-xs text-neutral-500">
+                  {item.attachmentNames.length
+                    ? item.attachmentNames.join(', ')
+                    : item.bodyParts
+                        .map((part) =>
+                          [part.part, part.type, part.disposition, part.filename]
+                            .filter(Boolean)
+                            .join(' / '),
+                        )
+                        .join('; ') || '--'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </CardShell>
+  );
+}
+
+function EmailTradePreviewTable({ trades }: { trades: EmailPdfTradePreview[] }) {
+  return (
+    <CardShell className="overflow-hidden">
+      <div className="border-b border-neutral-200 p-5 dark:border-neutral-800">
+        <h3 className="font-semibold text-neutral-900 dark:text-white">
+          交易解析预览
+        </h3>
+      </div>
+      {trades.length === 0 ? (
+        <div className="p-8 text-center text-sm text-neutral-500 dark:text-neutral-400">
+          暂无可预览的 PDF 交易记录
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1280px] text-left text-sm">
+            <thead className="bg-neutral-50 text-xs uppercase text-neutral-500 dark:bg-neutral-900/50 dark:text-neutral-400">
+              <tr>
+                <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Symbol</th>
+                <th className="px-5 py-3 font-medium">Side</th>
+                <th className="px-5 py-3 text-right font-medium">Quantity</th>
+                <th className="px-5 py-3 text-right font-medium">Price</th>
+                <th className="px-5 py-3 text-right font-medium">Proceeds</th>
+                <th className="px-5 py-3 text-right font-medium">Commission</th>
+                <th className="px-5 py-3 text-right font-medium">Fee</th>
+                <th className="px-5 py-3 font-medium">Trade Date/Time</th>
+                <th className="px-5 py-3 font-medium">Settle Date</th>
+                <th className="px-5 py-3 font-medium">Currency</th>
+                <th className="px-5 py-3 font-medium">Source Hash</th>
+                <th className="px-5 py-3 font-medium">Error</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
+              {trades.map((trade) => (
+                <tr key={trade.tempId}>
+                  <td className="px-5 py-3">
+                    <Tag color={emailStatusTone(trade.status)}>{trade.status}</Tag>
+                  </td>
+                  <td className="px-5 py-3 font-medium text-neutral-900 dark:text-white">
+                    {trade.symbol || '--'}
+                  </td>
+                  <td className="px-5 py-3">
+                    <Tag color={trade.side === 'SELL' ? 'yellow' : 'blue'}>
+                      {trade.status === 'ERROR' ? '--' : trade.side}
+                    </Tag>
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {formatPreviewNumber(trade.quantity, trade.status)}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {formatPreviewNumber(trade.price, trade.status)}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {formatOptionalNumber(trade.proceeds)}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {formatOptionalNumber(trade.commission)}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {formatOptionalNumber(trade.fee)}
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-3">
+                    {trade.tradeDateTime || '--'}
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-3">
+                    {trade.settleDate ?? '--'}
+                  </td>
+                  <td className="px-5 py-3">{trade.currency || '--'}</td>
+                  <td className="max-w-xs truncate px-5 py-3 text-xs text-neutral-500">
+                    {trade.sourceHash}
+                  </td>
+                  <td className="max-w-sm px-5 py-3 text-xs text-red-600 dark:text-red-300">
+                    {trade.errorMessage ?? '--'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </CardShell>
+  );
+}
+
+function formatPreviewNumber(value: number, status: EmailImportMailStatus) {
+  if (status === 'ERROR') return '--';
+  return value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
+function formatOptionalNumber(value?: number) {
+  if (typeof value !== 'number') return '--';
+  return value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
+function InfoTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-950/40">
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-neutral-900 dark:text-white">
+        {value}
+      </p>
     </div>
   );
 }

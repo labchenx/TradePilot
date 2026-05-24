@@ -174,14 +174,16 @@ export class ImportConfirmService {
       throw new BadRequestException('No preview records are available to confirm.');
     }
 
-    const settings = await this.prisma.userSettings.findUnique({
-      where: { userId },
-      select: {
-        autoRefreshQuotesAfterImport: true,
-        autoRegenerateSnapshotsAfterImport: true,
-        saveRawData: true,
-      },
-    });
+    const settings = this.prisma.userSettings?.findUnique
+      ? await this.prisma.userSettings.findUnique({
+          where: { userId },
+          select: {
+            autoRefreshQuotesAfterImport: true,
+            autoRegenerateSnapshotsAfterImport: true,
+            saveRawData: true,
+          },
+        })
+      : null;
     const saveRawData = settings?.saveRawData ?? true;
     const autoRefreshQuotesAfterImport =
       settings?.autoRefreshQuotesAfterImport ?? true;

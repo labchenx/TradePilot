@@ -11,10 +11,18 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers,
+    });
+  } catch (error) {
+    throw new Error(
+      `无法连接到后端 API (${API_BASE_URL})，请确认 API 服务正在运行，且当前页面端口已被后端 CORS 允许。`,
+      { cause: error },
+    );
+  }
 
   if (response.status === 401) {
     notifyUnauthorized();

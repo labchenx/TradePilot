@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { settingsService } from '@/services';
 import type {
+  EmailSettings,
+  EmailSettingsPayload,
   ImportSettings,
   MarketDataSettings,
   SettingsProfile,
@@ -12,6 +14,7 @@ export function useSettings() {
   const [importSettings, setImportSettings] = useState<ImportSettings | null>(
     null,
   );
+  const [emailSettings, setEmailSettings] = useState<EmailSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -21,15 +24,17 @@ export function useSettings() {
     setLoading(true);
     setError(null);
     try {
-      const [nextProfile, nextMarketData, nextImportSettings] =
+      const [nextProfile, nextMarketData, nextImportSettings, nextEmailSettings] =
         await Promise.all([
           settingsService.getProfile(),
           settingsService.getMarketData(),
           settingsService.getImportSettings(),
+          settingsService.getEmailSettings(),
         ]);
       setProfile(nextProfile);
       setMarketData(nextMarketData);
       setImportSettings(nextImportSettings);
+      setEmailSettings(nextEmailSettings);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -101,10 +106,72 @@ export function useSettings() {
     }
   }, []);
 
+  const saveEmailSettings = useCallback(async (payload: EmailSettingsPayload) => {
+    setSaving('emailSettings');
+    setSuccess(null);
+    setError(null);
+    try {
+      const updated = await settingsService.updateEmailSettings(payload);
+      setEmailSettings(updated);
+      setSuccess('Email settings saved.');
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error ? requestError.message : 'Save failed.',
+      );
+    } finally {
+      setSaving(null);
+    }
+  }, []);
+
+  const testEmailConnection = useCallback(async () => {
+    setSaving('emailTest');
+    setSuccess(null);
+    setError(null);
+    try {
+      const updated = await settingsService.testEmailConnection();
+      setEmailSettings(updated);
+      if (updated.status === 'CONNECTED') {
+        setSuccess('Email connection test succeeded.');
+      } else {
+        setError(
+          updated.errorMessage ?? 'Email connection test failed. Please check the authorization code.',
+        );
+      }
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Connection test failed.',
+      );
+    } finally {
+      setSaving(null);
+    }
+  }, []);
+
+  const disconnectEmail = useCallback(async () => {
+    setSaving('emailDisconnect');
+    setSuccess(null);
+    setError(null);
+    try {
+      const updated = await settingsService.disconnectEmail();
+      setEmailSettings(updated);
+      setSuccess('Email connection disconnected.');
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Disconnect failed.',
+      );
+    } finally {
+      setSaving(null);
+    }
+  }, []);
+
   return {
     profile,
     marketData,
     importSettings,
+    emailSettings,
     loading,
     saving,
     success,
@@ -114,6 +181,9 @@ export function useSettings() {
     saveProfile,
     saveMarketData,
     saveImportSettings,
+    saveEmailSettings,
+    testEmailConnection,
+    disconnectEmail,
     refetch,
   };
 }

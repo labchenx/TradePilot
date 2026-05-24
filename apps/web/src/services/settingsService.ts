@@ -1,4 +1,6 @@
 import type {
+  EmailSettings,
+  EmailSettingsPayload,
   ImportSettings,
   MarketDataSettings,
   SettingsProfile,
@@ -129,5 +131,36 @@ export const settingsService = {
     });
 
     return parseSettingsResponse<ImportSettings>(response);
+  },
+
+  async getEmailSettings(): Promise<EmailSettings> {
+    const response = await apiFetch('/api/settings/email');
+    return parseSettingsResponse<EmailSettings>(response);
+  },
+
+  async updateEmailSettings(
+    payload: EmailSettingsPayload,
+  ): Promise<EmailSettings> {
+    const response = await apiFetch('/api/settings/email', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    return parseSettingsResponse<EmailSettings>(response);
+  },
+
+  async testEmailConnection(): Promise<EmailSettings> {
+    const response = await apiFetch('/api/settings/email/test', {
+      method: 'POST',
+    });
+    return parseSettingsResponse<EmailSettings>(response);
+  },
+
+  async disconnectEmail(): Promise<EmailSettings> {
+    const response = await apiFetch('/api/settings/email/disconnect', {
+      method: 'POST',
+    });
+    return parseSettingsResponse<EmailSettings>(response);
   },
 };

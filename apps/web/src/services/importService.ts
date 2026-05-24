@@ -1,5 +1,10 @@
 import type {
   ClearDataResponse,
+  ConfirmEmailImportResponse,
+  EmailImportPreviewResponse,
+  EmailImportScanRange,
+  EmailPdfTradePreview,
+  EmailImportSearchResponse,
   ImportConfirmResponse,
   ImportDeleteHistoryResponse,
   ImportHistoryItem,
@@ -82,5 +87,41 @@ export const importService = {
     });
 
     return parseResponse<ClearDataResponse>(response);
+  },
+
+  async searchIbkrMails(
+    range: EmailImportScanRange,
+  ): Promise<EmailImportSearchResponse> {
+    const response = await apiFetch('/api/email-sync/search-ibkr-mails', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ range }),
+    });
+
+    return parseResponse<EmailImportSearchResponse>(response);
+  },
+
+  async scanAndPreviewIbkrMails(
+    range: EmailImportScanRange,
+  ): Promise<EmailImportPreviewResponse> {
+    const response = await apiFetch('/api/email-sync/scan-and-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ range }),
+    });
+
+    return parseResponse<EmailImportPreviewResponse>(response);
+  },
+
+  async confirmEmailPdfImport(
+    trades: EmailPdfTradePreview[],
+  ): Promise<ConfirmEmailImportResponse> {
+    const response = await apiFetch('/api/email-sync/confirm-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trades }),
+    });
+
+    return parseResponse<ConfirmEmailImportResponse>(response);
   },
 };

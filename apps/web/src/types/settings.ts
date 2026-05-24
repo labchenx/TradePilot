@@ -1,6 +1,9 @@
 export type MarketDataProvider = 'YAHOO_FINANCE';
 export type DuplicateStrategy = 'SKIP' | 'UPDATE_EMPTY_FIELDS';
-export type ImportSource = 'IBKR_CSV';
+export type ImportSource = 'IBKR_CSV' | 'IBKR_EMAIL_PDF';
+export type EmailProvider = 'QQ_MAIL' | 'NETEASE_163';
+export type EmailConnectionStatus = 'DISCONNECTED' | 'CONNECTED' | 'ERROR';
+export type EmailScanRange = 'SCAN_3D' | 'SCAN_7D' | 'SCAN_30D' | 'SCAN_90D';
 
 export interface SettingsProfile {
   id: string;
@@ -64,6 +67,32 @@ export interface ImportSettings {
   autoRecalculateMetricsAfterImport: boolean;
   saveRawData: boolean;
   updatedAt?: string;
+}
+
+export interface EmailSettings {
+  provider: EmailProvider;
+  providerLabel: string;
+  email: string | null;
+  hasAuthSecret: boolean;
+  status: EmailConnectionStatus;
+  lastTestAt: string | null;
+  lastSyncAt: string | null;
+  errorMessage: string | null;
+  defaultScanRange: EmailScanRange;
+  onlyIbkrEmails: boolean;
+  onlyPdfAttachments: boolean;
+  markAsRead: boolean;
+  updatedAt?: string;
+}
+
+export interface EmailSettingsPayload {
+  provider: EmailProvider;
+  email: string;
+  authCode?: string;
+  defaultScanRange?: EmailScanRange;
+  onlyIbkrEmails?: boolean;
+  onlyPdfAttachments?: boolean;
+  markAsRead?: boolean;
 }
 
 export interface MaintenanceResult {

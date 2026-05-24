@@ -15,6 +15,7 @@ import {
   ListSymbolMappingsDto,
   UpdateSymbolMappingDto,
 } from './dto/symbol-mapping.dto';
+import { UpdateEmailSettingsDto } from './dto/update-email-settings.dto';
 import { UpdateImportSettingsDto } from './dto/update-import-settings.dto';
 import { UpdateMarketDataSettingsDto } from './dto/update-market-data-settings.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -94,5 +95,28 @@ export class SettingsController {
     @Body() dto: UpdateImportSettingsDto,
   ) {
     return this.settingsService.updateImportSettings(user.id, dto);
+  }
+
+  @Get('email')
+  getEmailSettings(@CurrentUserParam() user: CurrentUser) {
+    return this.settingsService.getEmailSettings(user.id);
+  }
+
+  @Put('email')
+  updateEmailSettings(
+    @CurrentUserParam() user: CurrentUser,
+    @Body() dto: UpdateEmailSettingsDto,
+  ) {
+    return this.settingsService.updateEmailSettings(user.id, dto);
+  }
+
+  @Post('email/test')
+  testEmailConnection(@CurrentUserParam() user: CurrentUser) {
+    return this.settingsService.testEmailConnection(user.id);
+  }
+
+  @Post('email/disconnect')
+  disconnectEmail(@CurrentUserParam() user: CurrentUser) {
+    return this.settingsService.disconnectEmail(user.id);
   }
 }

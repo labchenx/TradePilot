@@ -1,0 +1,107 @@
+import {
+  createEmailPdfTradeSourceHash,
+  parseIbkrPdfTrades,
+} from './ibkr-pdf-trade-parser';
+
+describe('parseIbkrPdfTrades', () => {
+  it('parses tab-separated IBKR Daily Trade Report rows', () => {
+    const text = [
+      'Daily Trade Report',
+      'Trades',
+      'Acct ID\tSymbol\tTrade Date/Time\tSettle Date\tType\tQuantity\tPrice\tProceeds\tComm\tFee\tOrder Type\tCode\tCurrency',
+      'U1234567\tAMD\t05/21/2026 09:31:22\t05/26/2026\tBUY\t10\t150.25\t-1502.50\t-1.00\t0\tLMT\tO\tUSD',
+      'U1234567\tNVDA\t05/22/2026 10:01:00\t05/27/2026\tSELL\t2\t900.50\t1801.00\t-1.25\t0\tMKT\tC\tUSD',
+    ].join('\n');
+
+    const result = parseIbkrPdfTrades(text);
+
+    expect(result.errors).toEqual([]);
+    expect(result.trades).toHaveLength(2);
+    expect(result.trades[0]).toMatchObject({
+      accountId: 'U1234567',
+      symbol: 'AMD',
+      tradeDateTime: '2026-05-21 09:31:22',
+      tradeDate: '2026-05-21',
+      settleDate: '2026-05-26',
+      side: 'BUY',
+      quantity: 10,
+      price: 150.25,
+      proceeds: -1502.5,
+      commission: -1,
+      fee: 0,
+      orderType: 'LMT',
+      code: 'O',
+      currency: 'USD',
+    });
+  });
+
+  it('returns row-level errors when required fields are missing', () => {
+    const text = [
+      'Trades',
+      'Acct ID\tSymbol\tTrade Date/Time\tSettle Date\tType\tQuantity\tPrice\tProceeds\tComm\tFee\tOrder Type\tCode\tCurrency',
+      'U1234567\tAMD\t05/21/2026 09:31:22\t05/26/2026\tBUY\t10',
+    ].join('\n');
+
+    const result = parseIbkrPdfTrades(text);
+
+    expect(result.trades).toHaveLength(0);
+    expect(result.errors[0].message).toContain('Price');
+  });
+
+  it('parses masked account rows with punctuation from PDF text extraction', () => {
+    const text = [
+      'Daily Trade Report',
+      'Trades',
+      'Acct ID Symbol Trade Date/Time Settle Date Type Quantity Price Proceeds Comm Fee Order Type Code Currency',
+      'U***66165 NVDA 2026-05-21, 10:17:58 2026-05-22 BUY 10 220.4 -2,204 -0.34 0 LMT O USD',
+      'U***66165 NVDA 2026-05-21, 10:20:00 2026-05-22 BUY 5 220.2 -1,101 -0.35 0 LMT O USD',
+    ].join('\n');
+
+    const result = parseIbkrPdfTrades(text);
+
+    expect(result.errors).toEqual([]);
+    expect(result.trades).toHaveLength(2);
+    expect(result.trades[0]).toMatchObject({
+      accountId: 'U***66165',
+      symbol: 'NVDA',
+      tradeDateTime: '2026-05-21 10:17:58',
+      tradeDate: '2026-05-21',
+      settleDate: '2026-05-22',
+      side: 'BUY',
+      quantity: 10,
+      price: 220.4,
+      proceeds: -2204,
+      commission: -0.34,
+      fee: 0,
+      orderType: 'LMT',
+      code: 'O',
+      currency: 'USD',
+    });
+  });
+
+  it('creates stable source hashes from normalized trade fields', () => {
+    const base = {
+      accountId: 'U1234567',
+      symbol: 'AMD',
+      tradeDateTime: '2026-05-21 09:31:22',
+      tradeDate: '2026-05-21',
+      settleDate: '2026-05-26',
+      side: 'BUY' as const,
+      quantity: 10,
+      price: 150.25,
+      proceeds: -1502.5,
+      commission: -1,
+      fee: 0,
+      currency: 'USD',
+      orderType: 'LMT',
+      code: 'O',
+    };
+
+    expect(createEmailPdfTradeSourceHash(base)).toEqual(
+      createEmailPdfTradeSourceHash({ ...base }),
+    );
+    expect(createEmailPdfTradeSourceHash(base)).not.toEqual(
+      createEmailPdfTradeSourceHash({ ...base, quantity: 11 }),
+    );
+  });
+});

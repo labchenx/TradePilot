@@ -1,5 +1,5 @@
 export type TradeSide = 'BUY' | 'SELL';
-export type TradeSource = 'MANUAL' | 'EMAIL' | 'IBKR_CSV';
+export type TradeSource = 'MANUAL' | 'EMAIL' | 'IBKR_CSV' | 'IBKR_EMAIL_PDF';
 export type TransactionSideFilter = TradeSide | 'ALL';
 export type TransactionSortBy = 'date' | 'amount' | 'realizedPnl' | 'symbol';
 export type TransactionSortDirection = 'asc' | 'desc';

@@ -4,12 +4,17 @@ import {
   CheckCircle2,
   Database,
   FileText,
+  KeyRound,
+  Link2Off,
+  Mail,
   RefreshCw,
   Save,
+  Search,
   Shield,
   Trash2,
   User,
 } from 'lucide-react';
+import { Link } from 'react-router';
 import { useAuth } from '@/app/auth-provider';
 import { Button, CardShell, Input, PageTitle } from '@/components/common';
 import { useSettings, useSystemStatus } from '@/hooks';
@@ -17,7 +22,7 @@ import {
   marketDataService,
   portfolioMaintenanceService,
 } from '@/services';
-import type { ImportSettings } from '@/types';
+import type { EmailSettings, ImportSettings } from '@/types';
 
 type SyncActionKey = 'recalculate' | 'refreshQuotes' | 'regenerateTrend';
 
@@ -37,6 +42,7 @@ const initialSyncState: SyncActionState = {
 
 const navigationItems = [
   { id: 'account', label: 'Account', icon: User },
+  { id: 'email', label: 'Email', icon: Mail },
   { id: 'data-sync', label: 'Data & Sync', icon: Database },
   { id: 'import', label: 'Import', icon: FileText },
   { id: 'danger-zone', label: 'Danger Zone', icon: Shield },
@@ -46,6 +52,7 @@ type SettingsSectionId = (typeof navigationItems)[number]['id'];
 
 const sectionDomIds: Record<SettingsSectionId, string> = {
   account: 'settings-account',
+  email: 'settings-email',
   'data-sync': 'settings-data-sync',
   import: 'settings-import',
   'danger-zone': 'settings-danger-zone',
@@ -66,6 +73,39 @@ function isAutoRefreshEnabled(settings: ImportSettings) {
     settings.autoRegenerateSnapshotsAfterImport &&
     settings.autoRecalculateMetricsAfterImport
   );
+}
+
+function createEmailForm(settings: EmailSettings) {
+  return {
+    provider: settings.provider,
+    email: settings.email ?? '',
+    defaultScanRange: settings.defaultScanRange,
+    onlyIbkrEmails: settings.onlyIbkrEmails,
+    onlyPdfAttachments: settings.onlyPdfAttachments,
+    markAsRead: settings.markAsRead,
+  };
+}
+
+function getEmailProviderHint(provider: EmailSettings['provider']) {
+  return provider === 'NETEASE_163'
+    ? '请输入 163 邮箱地址，例如 name@163.com'
+    : '请输入 QQ 邮箱地址，例如 123456@qq.com';
+}
+
+function getEmailStatusLabel(status: EmailSettings['status']) {
+  if (status === 'CONNECTED') return '已连接';
+  if (status === 'ERROR') return '连接失败';
+  return '未连接';
+}
+
+function getEmailStatusClass(status: EmailSettings['status']) {
+  if (status === 'CONNECTED') {
+    return 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-300';
+  }
+  if (status === 'ERROR') {
+    return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300';
+  }
+  return 'border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-800 dark:bg-neutral-950/40 dark:text-neutral-300';
 }
 
 function FieldLabel({ children }: { children: string }) {
@@ -121,17 +161,25 @@ export function SettingsPage() {
     profile,
     marketData,
     importSettings,
+    emailSettings,
     loading,
     saving,
     success,
     error,
     saveProfile,
     saveImportSettings,
+    saveEmailSettings,
+    testEmailConnection,
+    disconnectEmail,
     refetch,
   } = useSettings();
   const systemStatus = useSystemStatus();
   const [profileName, setProfileName] = useState('');
   const [importForm, setImportForm] = useState<ImportSettings | null>(null);
+  const [emailForm, setEmailForm] = useState<ReturnType<
+    typeof createEmailForm
+  > | null>(null);
+  const [emailAuthCode, setEmailAuthCode] = useState('');
   const [syncStates, setSyncStates] = useState<Record<SyncActionKey, SyncActionState>>({
     recalculate: initialSyncState,
     refreshQuotes: initialSyncState,
@@ -151,6 +199,12 @@ export function SettingsPage() {
   useEffect(() => {
     setImportForm(importSettings);
   }, [importSettings]);
+
+  useEffect(() => {
+    if (!emailSettings) return;
+    setEmailForm(createEmailForm(emailSettings));
+    setEmailAuthCode('');
+  }, [emailSettings]);
 
   useEffect(() => {
     const updateActiveSection = () => {
@@ -241,6 +295,15 @@ export function SettingsPage() {
   const submitProfile = async () => {
     await saveProfile(profileName);
     await fetchMe();
+  };
+
+  const submitEmailSettings = async () => {
+    if (!emailForm) return;
+    await saveEmailSettings({
+      ...emailForm,
+      authCode: emailAuthCode.trim() || undefined,
+    });
+    setEmailAuthCode('');
   };
 
   const clearMyData = async () => {
@@ -349,6 +412,245 @@ export function SettingsPage() {
                 </Button>
               </div>
             </div>
+          </CardShell>
+
+          <CardShell id={sectionDomIds.email} className="scroll-mt-6 p-6">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral-900 dark:text-white">
+                  Email 邮件配置
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
+                  使用 QQ 邮箱或 163 邮箱的 IMAP 授权码连接，为后续读取 IBKR 交易确认邮件 PDF 附件做准备。
+                </p>
+              </div>
+              {emailSettings ? (
+                <span
+                  className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${getEmailStatusClass(
+                    emailSettings.status,
+                  )}`}
+                >
+                  {getEmailStatusLabel(emailSettings.status)}
+                </span>
+              ) : null}
+            </div>
+
+            {emailForm && emailSettings ? (
+              <div className="space-y-4">
+                <div>
+                  <FieldLabel>邮箱服务商</FieldLabel>
+                  <select
+                    value={emailForm.provider}
+                    onChange={(event) =>
+                      setEmailForm({
+                        ...emailForm,
+                        provider: event.target.value as EmailSettings['provider'],
+                      })
+                    }
+                    className="flex h-10 w-full max-w-md rounded-md border border-neutral-300 bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400 dark:border-neutral-800 dark:focus-visible:ring-neutral-500 dark:[&>option]:bg-neutral-900"
+                  >
+                    <option value="QQ_MAIL">QQ 邮箱</option>
+                    <option value="NETEASE_163">163 邮箱</option>
+                  </select>
+                </div>
+
+                <div>
+                  <FieldLabel>邮箱地址</FieldLabel>
+                  <Input
+                    type="email"
+                    value={emailForm.email}
+                    onChange={(event) =>
+                      setEmailForm({ ...emailForm, email: event.target.value })
+                    }
+                    placeholder={getEmailProviderHint(emailForm.provider)}
+                    className="max-w-md"
+                  />
+                  <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                    {getEmailProviderHint(emailForm.provider)}
+                  </p>
+                </div>
+
+                <div>
+                  <FieldLabel>邮箱授权码</FieldLabel>
+                  <Input
+                    type="password"
+                    value={emailAuthCode}
+                    onChange={(event) => setEmailAuthCode(event.target.value)}
+                    placeholder={
+                      emailSettings.hasAuthSecret
+                        ? '已配置授权码，留空则继续保留'
+                        : '请输入邮箱网页端生成的授权码'
+                    }
+                    autoComplete="new-password"
+                    className="max-w-md"
+                  />
+                  <p className="mt-1 flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
+                    <KeyRound className="h-3.5 w-3.5" />
+                    {emailSettings.hasAuthSecret ? '已配置授权码' : '尚未配置授权码'}
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <CompactMetric
+                    label="最近测试"
+                    value={formatDateTime(emailSettings.lastTestAt)}
+                  />
+                  <CompactMetric
+                    label="最近同步"
+                    value={formatDateTime(emailSettings.lastSyncAt)}
+                  />
+                </div>
+
+                {emailSettings.errorMessage ? (
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+                    {emailSettings.errorMessage}
+                  </div>
+                ) : null}
+
+                {saving === 'emailTest' ? (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
+                    正在测试 IMAP 登录并只读打开 INBOX，请稍等...
+                  </div>
+                ) : null}
+
+                {saving !== 'emailTest' && emailSettings.lastTestAt ? (
+                  <div
+                    className={`rounded-lg border p-3 text-sm ${getEmailStatusClass(
+                      emailSettings.status,
+                    )}`}
+                  >
+                    最近测试结果：{getEmailStatusLabel(emailSettings.status)}，
+                    测试时间：{formatDateTime(emailSettings.lastTestAt)}
+                    {emailSettings.status === 'CONNECTED'
+                      ? '。IMAP 登录和 INBOX 打开成功。'
+                      : null}
+                  </div>
+                ) : null}
+
+                {emailSettings.status === 'CONNECTED' ? (
+                  <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-medium">邮箱已连接，可以开始扫描 IBKR 邮件。</p>
+                      <p className="text-xs text-blue-700 dark:text-blue-300">
+                        扫描和 PDF 解析入口在 Imports 页面的 Email Import Tab。
+                      </p>
+                    </div>
+                    <Link
+                      to="/imports"
+                      className="inline-flex shrink-0 items-center justify-center rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 focus:ring-offset-white dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus:ring-white dark:focus:ring-offset-neutral-950"
+                    >
+                      <Search className="mr-2 h-4 w-4" />
+                      前往 Email Import 扫描
+                    </Link>
+                  </div>
+                ) : null}
+
+                <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
+                  <p>请先在对应邮箱网页端开启 IMAP/SMTP 服务，并生成授权码。</p>
+                  <p>这里填写的是邮箱授权码，不是邮箱登录密码。</p>
+                  <p>
+                    TradePilot 只会读取 IBKR 交易确认邮件中的 PDF 附件，不会删除或发送邮件。
+                  </p>
+                </div>
+
+                <div>
+                  <FieldLabel>默认扫描范围</FieldLabel>
+                  <select
+                    value={emailForm.defaultScanRange}
+                    onChange={(event) =>
+                      setEmailForm({
+                        ...emailForm,
+                        defaultScanRange:
+                          event.target.value as EmailSettings['defaultScanRange'],
+                      })
+                    }
+                    className="flex h-10 w-full max-w-md rounded-md border border-neutral-300 bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-400 dark:border-neutral-800 dark:focus-visible:ring-neutral-500 dark:[&>option]:bg-neutral-900"
+                  >
+                    <option value="SCAN_3D">3d</option>
+                    <option value="SCAN_7D">7d</option>
+                    <option value="SCAN_30D">30d</option>
+                    <option value="SCAN_90D">90d</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="flex max-w-md items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:text-neutral-300">
+                    <span>只处理 IBKR 交易确认邮件</span>
+                    <input
+                      type="checkbox"
+                      checked={emailForm.onlyIbkrEmails}
+                      onChange={(event) =>
+                        setEmailForm({
+                          ...emailForm,
+                          onlyIbkrEmails: event.target.checked,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="flex max-w-md items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:text-neutral-300">
+                    <span>只处理 PDF 附件</span>
+                    <input
+                      type="checkbox"
+                      checked={emailForm.onlyPdfAttachments}
+                      onChange={(event) =>
+                        setEmailForm({
+                          ...emailForm,
+                          onlyPdfAttachments: event.target.checked,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="flex max-w-md items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:text-neutral-300">
+                    <span>同步后标记为已读</span>
+                    <input
+                      type="checkbox"
+                      checked={emailForm.markAsRead}
+                      onChange={(event) =>
+                        setEmailForm({
+                          ...emailForm,
+                          markAsRead: event.target.checked,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+
+                <p className="text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+                  测试连接会使用已保存的邮箱地址和授权码。修改邮箱或授权码后，请先保存配置再测试。
+                </p>
+
+                <div className="flex flex-wrap justify-end gap-3 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={disconnectEmail}
+                    disabled={
+                      saving === 'emailDisconnect' ||
+                      !emailSettings.hasAuthSecret
+                    }
+                  >
+                    <Link2Off className="mr-2 h-4 w-4" />
+                    {saving === 'emailDisconnect' ? 'Disconnecting...' : '断开连接'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={testEmailConnection}
+                    disabled={
+                      saving === 'emailTest' || !emailSettings.hasAuthSecret
+                    }
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    {saving === 'emailTest' ? 'Testing...' : '测试连接'}
+                  </Button>
+                  <Button
+                    onClick={submitEmailSettings}
+                    disabled={saving === 'emailSettings'}
+                  >
+                    <Save className="mr-2 h-4 w-4" />
+                    {saving === 'emailSettings' ? 'Saving...' : '保存配置'}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </CardShell>
 
           <CardShell id={sectionDomIds['data-sync']} className="scroll-mt-6 p-6">

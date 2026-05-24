@@ -1,10 +1,17 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
+import { TLSSocket, connect as tlsConnect } from 'tls';
 import {
   DuplicateStrategy,
+  EmailConnectionStatus,
+  EmailProvider,
+  EmailScanRange,
   IbkrEventType,
   ImportSource,
   MarketDataProvider,
@@ -18,6 +25,7 @@ import {
   ListSymbolMappingsDto,
   UpdateSymbolMappingDto,
 } from './dto/symbol-mapping.dto';
+import { UpdateEmailSettingsDto } from './dto/update-email-settings.dto';
 import { UpdateImportSettingsDto } from './dto/update-import-settings.dto';
 import { UpdateMarketDataSettingsDto } from './dto/update-market-data-settings.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -36,6 +44,26 @@ const CORPORATE_ACTION_EVENTS: IbkrEventType[] = [
   IbkrEventType.REVERSE_SPLIT,
   IbkrEventType.ADJUSTMENT,
 ];
+
+const EMAIL_PROVIDER_CONFIG: Record<
+  EmailProvider,
+  { label: string; imapHost: string; imapPort: number; secure: boolean; emailPattern: RegExp }
+> = {
+  [EmailProvider.QQ_MAIL]: {
+    label: 'QQ 邮箱',
+    imapHost: 'imap.qq.com',
+    imapPort: 993,
+    secure: true,
+    emailPattern: /^[^@\s]+@qq\.com$/i,
+  },
+  [EmailProvider.NETEASE_163]: {
+    label: '163 邮箱',
+    imapHost: 'imap.163.com',
+    imapPort: 993,
+    secure: true,
+    emailPattern: /^[^@\s]+@163\.com$/i,
+  },
+};
 
 function compactDate(value?: Date | null) {
   return value ? value.toISOString() : null;
@@ -56,6 +84,51 @@ function maxDate(...dates: Array<Date | null | undefined>) {
   return validDates.reduce((latest, date) =>
     date.getTime() > latest.getTime() ? date : latest,
   );
+}
+
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function getEmailProviderConfig(provider: EmailProvider) {
+  const config = EMAIL_PROVIDER_CONFIG[provider];
+  if (!config) {
+    throw new BadRequestException('Unsupported email provider.');
+  }
+  return config;
+}
+
+function serializeEmailSettings(settings: {
+  emailProvider: EmailProvider;
+  emailAddress: string | null;
+  emailAuthSecretEncrypted: string | null;
+  emailConnectionStatus: EmailConnectionStatus;
+  emailLastTestAt: Date | null;
+  emailLastSyncAt: Date | null;
+  emailErrorMessage: string | null;
+  emailDefaultScanRange: EmailScanRange;
+  emailOnlyIbkrEmails: boolean;
+  emailOnlyPdfAttachments: boolean;
+  emailMarkAsRead: boolean;
+  updatedAt: Date;
+}) {
+  const config = getEmailProviderConfig(settings.emailProvider);
+
+  return {
+    provider: settings.emailProvider,
+    providerLabel: config.label,
+    email: settings.emailAddress,
+    hasAuthSecret: Boolean(settings.emailAuthSecretEncrypted),
+    status: settings.emailConnectionStatus,
+    lastTestAt: compactDate(settings.emailLastTestAt),
+    lastSyncAt: compactDate(settings.emailLastSyncAt),
+    errorMessage: settings.emailErrorMessage,
+    defaultScanRange: settings.emailDefaultScanRange,
+    onlyIbkrEmails: settings.emailOnlyIbkrEmails,
+    onlyPdfAttachments: settings.emailOnlyPdfAttachments,
+    markAsRead: settings.emailMarkAsRead,
+    updatedAt: settings.updatedAt.toISOString(),
+  };
 }
 
 @Injectable()
@@ -288,6 +361,124 @@ export class SettingsService {
     };
   }
 
+  async getEmailSettings(userId: string) {
+    const settings = await this.getOrCreateUserSettings(userId);
+    return serializeEmailSettings(settings);
+  }
+
+  async updateEmailSettings(userId: string, dto: UpdateEmailSettingsDto) {
+    const providerConfig = getEmailProviderConfig(dto.provider);
+    const email = normalizeEmail(dto.email);
+    this.assertEmailMatchesProvider(email, dto.provider);
+
+    const authSecretEncrypted = dto.authCode
+      ? this.encryptSecret(dto.authCode)
+      : undefined;
+
+    const settings = await this.prisma.userSettings.upsert({
+      where: { userId },
+      create: {
+        userId,
+        emailProvider: dto.provider,
+        emailAddress: email,
+        emailImapHost: providerConfig.imapHost,
+        emailImapPort: providerConfig.imapPort,
+        emailImapSecure: providerConfig.secure,
+        emailAuthSecretEncrypted: authSecretEncrypted,
+        emailConnectionStatus: EmailConnectionStatus.DISCONNECTED,
+        emailErrorMessage: null,
+        emailDefaultScanRange: dto.defaultScanRange ?? EmailScanRange.SCAN_3D,
+        emailOnlyIbkrEmails: dto.onlyIbkrEmails ?? true,
+        emailOnlyPdfAttachments: dto.onlyPdfAttachments ?? true,
+        emailMarkAsRead: dto.markAsRead ?? false,
+      },
+      update: {
+        emailProvider: dto.provider,
+        emailAddress: email,
+        emailImapHost: providerConfig.imapHost,
+        emailImapPort: providerConfig.imapPort,
+        emailImapSecure: providerConfig.secure,
+        ...(authSecretEncrypted
+          ? { emailAuthSecretEncrypted: authSecretEncrypted }
+          : {}),
+        emailDefaultScanRange: dto.defaultScanRange,
+        emailOnlyIbkrEmails: dto.onlyIbkrEmails,
+        emailOnlyPdfAttachments: dto.onlyPdfAttachments,
+        emailMarkAsRead: dto.markAsRead,
+        emailErrorMessage: null,
+      },
+    });
+
+    return serializeEmailSettings(settings);
+  }
+
+  async testEmailConnection(userId: string) {
+    const settings = await this.getOrCreateUserSettings(userId);
+    if (!settings.emailAddress || !settings.emailAuthSecretEncrypted) {
+      throw new BadRequestException(
+        'Please save an email address and authorization code before testing.',
+      );
+    }
+
+    const providerConfig = getEmailProviderConfig(settings.emailProvider);
+    const authCode = this.decryptSecret(settings.emailAuthSecretEncrypted);
+
+    try {
+      await testImapInboxConnection({
+        host: providerConfig.imapHost,
+        port: providerConfig.imapPort,
+        secure: providerConfig.secure,
+        email: settings.emailAddress,
+        authCode,
+      });
+
+      const updated = await this.prisma.userSettings.update({
+        where: { userId },
+        data: {
+          emailImapHost: providerConfig.imapHost,
+          emailImapPort: providerConfig.imapPort,
+          emailImapSecure: providerConfig.secure,
+          emailConnectionStatus: EmailConnectionStatus.CONNECTED,
+          emailLastTestAt: new Date(),
+          emailErrorMessage: null,
+        },
+      });
+
+      return serializeEmailSettings(updated);
+    } catch (error) {
+      const message = sanitizeImapError(error);
+      const updated = await this.prisma.userSettings.update({
+        where: { userId },
+        data: {
+          emailConnectionStatus: EmailConnectionStatus.ERROR,
+          emailLastTestAt: new Date(),
+          emailErrorMessage: message,
+        },
+      });
+
+      return serializeEmailSettings(updated);
+    }
+  }
+
+  async disconnectEmail(userId: string) {
+    const settings = await this.getOrCreateUserSettings(userId);
+    const providerConfig = getEmailProviderConfig(settings.emailProvider);
+
+    const updated = await this.prisma.userSettings.update({
+      where: { userId },
+      data: {
+        emailImapHost: providerConfig.imapHost,
+        emailImapPort: providerConfig.imapPort,
+        emailImapSecure: providerConfig.secure,
+        emailAuthSecretEncrypted: null,
+        emailConnectionStatus: EmailConnectionStatus.DISCONNECTED,
+        emailErrorMessage: null,
+      },
+    });
+
+    return serializeEmailSettings(updated);
+  }
+
   async listSymbolMappings(userId: string, query: ListSymbolMappingsDto) {
     const search = query.search?.trim();
     const mappings = await this.prisma.symbolMapping.findMany({
@@ -479,10 +670,188 @@ export class SettingsService {
     };
   }
 
+  private assertEmailMatchesProvider(email: string, provider: EmailProvider) {
+    const config = getEmailProviderConfig(provider);
+    if (!config.emailPattern.test(email)) {
+      throw new BadRequestException(
+        `${config.label} must use an email address that matches this provider.`,
+      );
+    }
+  }
+
+  private encryptSecret(secret: string) {
+    const key = this.getEmailSecretKey();
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const encrypted = Buffer.concat([
+      cipher.update(secret, 'utf8'),
+      cipher.final(),
+    ]);
+    const authTag = cipher.getAuthTag();
+
+    return [
+      'v1',
+      iv.toString('base64url'),
+      authTag.toString('base64url'),
+      encrypted.toString('base64url'),
+    ].join(':');
+  }
+
+  private decryptSecret(encryptedSecret: string) {
+    const [version, iv, authTag, encrypted] = encryptedSecret.split(':');
+    if (version !== 'v1' || !iv || !authTag || !encrypted) {
+      throw new InternalServerErrorException('Email secret format is invalid.');
+    }
+
+    try {
+      const key = this.getEmailSecretKey();
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        key,
+        Buffer.from(iv, 'base64url'),
+      );
+      decipher.setAuthTag(Buffer.from(authTag, 'base64url'));
+
+      return Buffer.concat([
+        decipher.update(Buffer.from(encrypted, 'base64url')),
+        decipher.final(),
+      ]).toString('utf8');
+    } catch {
+      throw new BadRequestException(
+        'Email auth code cannot be decrypted with the current EMAIL_SECRET_KEY. Please re-save the email auth code in Settings.',
+      );
+    }
+  }
+
+  private getEmailSecretKey() {
+    const secret = process.env.EMAIL_SECRET_KEY;
+    if (!secret) {
+      throw new InternalServerErrorException(
+        'EMAIL_SECRET_KEY is not configured.',
+      );
+    }
+
+    // Hashing allows local/dev secrets of any length while still giving AES a 32-byte key.
+    return createHash('sha256').update(secret).digest();
+  }
+
   private isUniqueError(error: unknown) {
     return (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === 'P2002'
     );
+  }
+}
+
+function quoteImapString(value: string) {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function sanitizeImapError(error: unknown) {
+  if (!(error instanceof Error)) return 'Email connection test failed.';
+  return error.message.replace(/AUTHENTICATE|LOGIN/gi, 'AUTH');
+}
+
+async function testImapInboxConnection(input: {
+  host: string;
+  port: number;
+  secure: boolean;
+  email: string;
+  authCode: string;
+}) {
+  if (!input.secure) {
+    throw new BadRequestException('Only secure IMAP connections are supported.');
+  }
+
+  const socket = await openTlsSocket(input.host, input.port);
+  const reader = new ImapLineReader(socket);
+
+  try {
+    await reader.readGreeting();
+    await reader.runTaggedCommand(
+      'A001',
+      `LOGIN ${quoteImapString(input.email)} ${quoteImapString(input.authCode)}`,
+    );
+    await reader.runTaggedCommand('A002', 'EXAMINE INBOX');
+    await reader.runTaggedCommand('A003', 'LOGOUT', true);
+  } finally {
+    socket.destroy();
+  }
+}
+
+function openTlsSocket(host: string, port: number) {
+  return new Promise<TLSSocket>((resolve, reject) => {
+    const socket = tlsConnect({
+      host,
+      port,
+      servername: host,
+      timeout: 15000,
+    });
+
+    socket.once('secureConnect', () => resolve(socket));
+    socket.once('error', reject);
+    socket.once('timeout', () => {
+      socket.destroy();
+      reject(new Error('Email connection timed out.'));
+    });
+  });
+}
+
+class ImapLineReader {
+  private buffer = '';
+  private lines: string[] = [];
+  private waiters: Array<(line: string) => void> = [];
+
+  constructor(private readonly socket: TLSSocket) {
+    socket.on('data', (chunk: Buffer) => {
+      this.buffer += chunk.toString('utf8');
+      let newlineIndex = this.buffer.indexOf('\n');
+
+      while (newlineIndex >= 0) {
+        const line = this.buffer.slice(0, newlineIndex).replace(/\r$/, '');
+        this.buffer = this.buffer.slice(newlineIndex + 1);
+        this.pushLine(line);
+        newlineIndex = this.buffer.indexOf('\n');
+      }
+    });
+  }
+
+  async readGreeting() {
+    const line = await this.nextLine();
+    if (!line.startsWith('* OK') && !line.startsWith('* PREAUTH')) {
+      throw new Error('IMAP server did not return a valid greeting.');
+    }
+  }
+
+  async runTaggedCommand(tag: string, command: string, ignoreFailure = false) {
+    this.socket.write(`${tag} ${command}\r\n`);
+
+    while (true) {
+      const line = await this.nextLine();
+      if (!line.startsWith(`${tag} `)) continue;
+
+      if (line.startsWith(`${tag} OK`)) return;
+      if (ignoreFailure) return;
+      throw new Error('IMAP server rejected the connection test command.');
+    }
+  }
+
+  private nextLine() {
+    const current = this.lines.shift();
+    if (current !== undefined) return Promise.resolve(current);
+
+    return new Promise<string>((resolve) => {
+      this.waiters.push(resolve);
+    });
+  }
+
+  private pushLine(line: string) {
+    const waiter = this.waiters.shift();
+    if (waiter) {
+      waiter(line);
+      return;
+    }
+
+    this.lines.push(line);
   }
 }

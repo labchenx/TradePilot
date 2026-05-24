@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from './auth/auth.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { EmailSyncModule } from './email-sync/email-sync.module';
 import { HealthModule } from './health/health.module';
 import { ImportsModule } from './imports/imports.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
@@ -13,6 +14,7 @@ import { TransactionEventsModule } from './transaction-events/transaction-events
     PrismaModule,
     AuthModule,
     HealthModule,
+    EmailSyncModule,
     ImportsModule,
     TransactionEventsModule,
     PortfolioModule,
