@@ -209,16 +209,15 @@ function parseTradeRow(rowText: string): ParsedIbkrPdfTrade | ParsedIbkrPdfTrade
   const proceeds = parseOptionalNumeric(numericTokens[2]?.token);
   const commission = parseOptionalNumeric(numericTokens[3]?.token);
   const fee = parseOptionalNumeric(numericTokens[4]?.token);
-  const currencyIndex = findCurrencyIndex(tokens);
-  const currency = currencyIndex >= 0 ? tokens[currencyIndex] : '';
-  const orderType =
-    currencyIndex > 0
-      ? tokens.slice((numericTokens[4]?.index ?? numericTokens[1]?.index ?? sideIndex) + 1, currencyIndex)[0]
-      : undefined;
-  const code =
-    currencyIndex > 0
-      ? tokens.slice((numericTokens[4]?.index ?? numericTokens[1]?.index ?? sideIndex) + 1, currencyIndex)[1]
-      : undefined;
+  const currencyIndex = findCurrencyIndex(tokens, sideIndex);
+  const currency =
+    currencyIndex >= 0 ? tokens[currencyIndex].toUpperCase() : inferCurrencyFromSymbol(symbol);
+  const trailingStart =
+    (numericTokens[4]?.index ?? numericTokens[1]?.index ?? sideIndex) + 1;
+  const trailingEnd = currencyIndex >= 0 ? currencyIndex : tokens.length;
+  const trailingTokens = tokens.slice(trailingStart, trailingEnd);
+  const orderType = trailingTokens[0];
+  const code = trailingTokens[1];
 
   const missing = [
     !symbol ? 'Symbol' : null,
@@ -347,13 +346,16 @@ function pad2(value: string) {
   return value.padStart(2, '0');
 }
 
-function findCurrencyIndex(tokens: string[]) {
+function findCurrencyIndex(tokens: string[], sideIndex: number) {
   for (let index = tokens.length - 1; index >= 0; index -= 1) {
-    if (KNOWN_CURRENCY_TOKEN_REGEX.test(tokens[index])) return index;
+    if (index > sideIndex && KNOWN_CURRENCY_TOKEN_REGEX.test(tokens[index])) {
+      return index;
+    }
   }
 
   for (let index = tokens.length - 1; index >= 0; index -= 1) {
     if (
+      index > sideIndex &&
       CURRENCY_TOKEN_REGEX.test(tokens[index]) &&
       !ORDER_TYPE_TOKEN_REGEX.test(tokens[index])
     ) {
@@ -361,6 +363,18 @@ function findCurrencyIndex(tokens: string[]) {
     }
   }
   return -1;
+}
+
+function inferCurrencyFromSymbol(symbol: string) {
+  const normalized = symbol.trim().toUpperCase();
+
+  // IBKR PDF extraction can drop the Currency column for trade rows. In that
+  // case, infer only from common listed security symbol shapes and keep unknown
+  // symbols as missing so validation can surface the row.
+  if (/^\d{5}$/.test(normalized)) return 'HKD';
+  if (/^\d{6}$/.test(normalized)) return 'CNY';
+  if (/^[A-Z][A-Z0-9._ -]{0,14}$/.test(normalized)) return 'USD';
+  return '';
 }
 
 function normalizeHashNumber(value?: number) {

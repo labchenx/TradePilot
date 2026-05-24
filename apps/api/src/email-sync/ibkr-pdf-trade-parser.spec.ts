@@ -79,6 +79,34 @@ describe('parseIbkrPdfTrades', () => {
     });
   });
 
+  it('does not treat BUY as currency when PDF rows omit the currency column', () => {
+    const text = [
+      'Daily Trade Report',
+      'Trades',
+      'Acct ID Symbol Trade Date/Time Settle Date Exchange Type Quantity Price Proceeds Comm Fee Order Type Code Currency',
+      'U***66165 NVDA 2026-05-21, 10:17:58 2026-05-22 - BUY 10 220.4000 -2,204.00 -0.34 0.00 LMT O',
+      'U***66165 NVDA 2026-05-21, 22:06:14 2026-05-26 - BUY 5 220.2000 -1,101.00 -0.35 0.00 LMT O',
+    ].join('\n');
+
+    const result = parseIbkrPdfTrades(text);
+
+    expect(result.errors).toEqual([]);
+    expect(result.trades).toHaveLength(2);
+    expect(result.trades[0]).toMatchObject({
+      exchange: '-',
+      side: 'BUY',
+      currency: 'USD',
+      orderType: 'LMT',
+      code: 'O',
+    });
+    expect(result.trades[1]).toMatchObject({
+      side: 'BUY',
+      currency: 'USD',
+      orderType: 'LMT',
+      code: 'O',
+    });
+  });
+
   it('creates stable source hashes from normalized trade fields', () => {
     const base = {
       accountId: 'U1234567',
