@@ -1,9 +1,15 @@
-export type MarketDataProvider = 'YAHOO_FINANCE';
+export type MarketDataProvider = 'EASTMONEY';
 export type DuplicateStrategy = 'SKIP' | 'UPDATE_EMPTY_FIELDS';
 export type ImportSource = 'IBKR_CSV' | 'IBKR_EMAIL_PDF';
 export type EmailProvider = 'QQ_MAIL' | 'NETEASE_163';
 export type EmailConnectionStatus = 'DISCONNECTED' | 'CONNECTED' | 'ERROR';
 export type EmailScanRange = 'SCAN_3D' | 'SCAN_7D' | 'SCAN_30D' | 'SCAN_90D';
+export type EmailSettingsSyncStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'SUCCESS'
+  | 'PARTIAL'
+  | 'FAILED';
 
 export interface SettingsProfile {
   id: string;
@@ -25,6 +31,8 @@ export interface SettingsStatus {
   quoteCacheCount: number;
   priceHistoryCount: number;
   lastImportAt: string | null;
+  lastEmailSyncAt: string | null;
+  lastDataSyncAt: string | null;
   lastQuoteUpdatedAt: string | null;
   lastSnapshotGeneratedAt: string | null;
 }
@@ -77,8 +85,12 @@ export interface EmailSettings {
   status: EmailConnectionStatus;
   lastTestAt: string | null;
   lastSyncAt: string | null;
+  lastSyncStatus: EmailSettingsSyncStatus | null;
+  lastSyncErrorMessage: string | null;
   errorMessage: string | null;
   defaultScanRange: EmailScanRange;
+  autoSyncEnabled: boolean;
+  syncTime: string;
   onlyIbkrEmails: boolean;
   onlyPdfAttachments: boolean;
   markAsRead: boolean;
@@ -90,6 +102,8 @@ export interface EmailSettingsPayload {
   email: string;
   authCode?: string;
   defaultScanRange?: EmailScanRange;
+  autoSyncEnabled?: boolean;
+  syncTime?: string;
   onlyIbkrEmails?: boolean;
   onlyPdfAttachments?: boolean;
   markAsRead?: boolean;

@@ -3,8 +3,8 @@ import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { normalizeSymbolForYahoo } from './symbol-normalizer';
-import { YahooProvider } from './yahoo-provider';
+import { EastMoneyProvider } from './eastmoney-provider';
+import { normalizeSymbolForEastMoney } from './symbol-normalizer';
 
 export interface MonthEndPriceResult {
   symbol: string;
@@ -13,7 +13,7 @@ export interface MonthEndPriceResult {
   close: Decimal | null;
   adjustedClose: Decimal | null;
   currency: string | null;
-  source: 'CACHE' | 'YAHOO_FINANCE' | 'MISSING';
+  source: 'CACHE' | 'EASTMONEY' | 'MISSING';
   warnings: string[];
 }
 
@@ -31,7 +31,7 @@ function addDays(value: Date, days: number) {
 export class HistoricalPriceService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly yahooProvider: YahooProvider,
+    private readonly eastMoneyProvider: EastMoneyProvider,
     private readonly settingsService?: SettingsService,
   ) {}
 
@@ -43,6 +43,7 @@ export class HistoricalPriceService {
     return this.prisma.priceHistory.findFirst({
       where: {
         symbol,
+        source: 'EASTMONEY',
         date: {
           gte: monthStart,
           lte: snapshotDate,
@@ -69,7 +70,7 @@ export class HistoricalPriceService {
             symbol_date_source: {
               symbol,
               date: toDateOnly(price.date),
-              source: 'YAHOO_FINANCE',
+              source: 'EASTMONEY',
             },
           },
           update: {
@@ -91,7 +92,7 @@ export class HistoricalPriceService {
                 ? new Prisma.Decimal(price.adjustedClose)
                 : null,
             currency: price.currency,
-            source: 'YAHOO_FINANCE',
+            source: 'EASTMONEY',
           },
         }),
       ),
@@ -103,7 +104,7 @@ export class HistoricalPriceService {
    *
    * 业务层只问“某只股票某个月的月末价格”，这里负责：
    * 1. 先查本地 price_history；
-   * 2. 缺失时向 Yahoo 拉取该月日线；
+   * 2. 缺失时向 EastMoney 拉取该月日线；
    * 3. 缓存成功返回的数据；
    * 4. 仍然缺失时返回 warning，而不是让 Dashboard 崩溃。
    */
@@ -116,8 +117,9 @@ export class HistoricalPriceService {
     const mapping = await this.settingsService?.resolveProviderSymbols(userId, [
       symbol,
     ]);
-    const providerSymbol =
-      mapping?.get(symbol.trim().toUpperCase()) ?? normalizeSymbolForYahoo(symbol);
+    const providerSymbol = normalizeSymbolForEastMoney(
+      mapping?.get(symbol.trim().toUpperCase()) ?? symbol,
+    );
     const warnings: string[] = [];
     const cached = await this.findCachedMonthEndPrice(
       symbol,
@@ -128,7 +130,7 @@ export class HistoricalPriceService {
     if (cached) {
       return {
         symbol,
-        providerSymbol,
+        providerSymbol: formatProviderSymbol(providerSymbol),
         date: cached.date,
         close: new Decimal(cached.close),
         adjustedClose: cached.adjustedClose
@@ -141,12 +143,12 @@ export class HistoricalPriceService {
     }
 
     try {
-      const prices = await this.yahooProvider.getDailyPrices(
+      const prices = await this.eastMoneyProvider.getDailyPrices(
         providerSymbol,
         monthStart,
         addDays(snapshotDate, 1),
       );
-      await this.saveDailyPrices(symbol, providerSymbol, prices);
+      await this.saveDailyPrices(symbol, formatProviderSymbol(providerSymbol), prices);
     } catch {
       warnings.push(
         `${symbol} ${monthStart.toISOString().slice(0, 7)} historical price request failed.`,
@@ -166,7 +168,7 @@ export class HistoricalPriceService {
 
       return {
         symbol,
-        providerSymbol,
+        providerSymbol: formatProviderSymbol(providerSymbol),
         date: null,
         close: null,
         adjustedClose: null,
@@ -178,15 +180,19 @@ export class HistoricalPriceService {
 
     return {
       symbol,
-      providerSymbol,
+      providerSymbol: formatProviderSymbol(providerSymbol),
       date: latest.date,
       close: new Decimal(latest.close),
       adjustedClose: latest.adjustedClose
         ? new Decimal(latest.adjustedClose)
         : null,
       currency: latest.currency,
-      source: 'YAHOO_FINANCE',
+      source: 'EASTMONEY',
       warnings,
     };
   }
+}
+
+function formatProviderSymbol(symbol: { market: number; providerSymbol: string }) {
+  return `${symbol.market}:${symbol.providerSymbol}`;
 }

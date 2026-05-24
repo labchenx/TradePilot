@@ -5,13 +5,13 @@ import { MarketController } from './market.controller';
 import { MarketMaintenanceService } from './market-maintenance.service';
 import { QuoteCacheService } from './quote-cache.service';
 import { QuoteService } from './quote-service';
-import { YahooProvider } from './yahoo-provider';
+import { EastMoneyProvider } from './eastmoney-provider';
 
 @Module({
   imports: [SettingsModule],
   controllers: [MarketController],
   providers: [
-    YahooProvider,
+    EastMoneyProvider,
     QuoteCacheService,
     QuoteService,
     HistoricalPriceService,

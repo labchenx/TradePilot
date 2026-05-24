@@ -80,6 +80,8 @@ function createEmailForm(settings: EmailSettings) {
     provider: settings.provider,
     email: settings.email ?? '',
     defaultScanRange: settings.defaultScanRange,
+    autoSyncEnabled: settings.autoSyncEnabled,
+    syncTime: settings.syncTime,
     onlyIbkrEmails: settings.onlyIbkrEmails,
     onlyPdfAttachments: settings.onlyPdfAttachments,
     markAsRead: settings.markAsRead,
@@ -499,7 +501,21 @@ export function SettingsPage() {
                     label="最近同步"
                     value={formatDateTime(emailSettings.lastSyncAt)}
                   />
+                  <CompactMetric
+                    label="Auto Sync"
+                    value={emailSettings.autoSyncEnabled ? 'Enabled' : 'Disabled'}
+                  />
+                  <CompactMetric
+                    label="Last Sync Status"
+                    value={emailSettings.lastSyncStatus ?? '--'}
+                  />
                 </div>
+
+                {emailSettings.lastSyncErrorMessage ? (
+                  <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900/60 dark:bg-yellow-950/30 dark:text-yellow-200">
+                    {emailSettings.lastSyncErrorMessage}
+                  </div>
+                ) : null}
 
                 {emailSettings.errorMessage ? (
                   <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
@@ -573,6 +589,33 @@ export function SettingsPage() {
                   </select>
                 </div>
 
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex max-w-md items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:text-neutral-300">
+                    <span>Auto Sync</span>
+                    <input
+                      type="checkbox"
+                      checked={emailForm.autoSyncEnabled}
+                      onChange={(event) =>
+                        setEmailForm({
+                          ...emailForm,
+                          autoSyncEnabled: event.target.checked,
+                        })
+                      }
+                    />
+                  </label>
+                  <div>
+                    <FieldLabel>Daily Sync Time</FieldLabel>
+                    <Input
+                      value={emailForm.syncTime}
+                      disabled
+                      className="max-w-md bg-neutral-50 dark:bg-neutral-800/50"
+                    />
+                    <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                      Version 1 runs at 07:00 Asia/Shanghai.
+                    </p>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <label className="flex max-w-md items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:text-neutral-300">
                     <span>只处理 IBKR 交易确认邮件</span>
@@ -604,13 +647,8 @@ export function SettingsPage() {
                     <span>同步后标记为已读</span>
                     <input
                       type="checkbox"
-                      checked={emailForm.markAsRead}
-                      onChange={(event) =>
-                        setEmailForm({
-                          ...emailForm,
-                          markAsRead: event.target.checked,
-                        })
-                      }
+                      checked={false}
+                      disabled
                     />
                   </label>
                 </div>
@@ -664,7 +702,7 @@ export function SettingsPage() {
                 </p>
               </div>
               <div className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
-                {marketData?.providerLabel ?? 'Yahoo Finance'}
+                {marketData?.providerLabel ?? 'EastMoney / 东方财富'}
               </div>
             </div>
 

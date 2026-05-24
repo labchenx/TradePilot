@@ -3,6 +3,7 @@ import type {
   ConfirmEmailImportResponse,
   EmailImportPreviewResponse,
   EmailImportScanRange,
+  EmailSyncJobHistoryItem,
   EmailPdfTradePreview,
   EmailImportSearchResponse,
   ImportConfirmResponse,
@@ -11,6 +12,7 @@ import type {
   ImportJobDetail,
   ImportPreviewRecord,
   ImportPreviewResponse,
+  RunEmailSyncResponse,
 } from '@/types';
 import { apiFetch } from './apiClient';
 
@@ -123,5 +125,18 @@ export const importService = {
     });
 
     return parseResponse<ConfirmEmailImportResponse>(response);
+  },
+
+  async runEmailSyncNow(): Promise<RunEmailSyncResponse> {
+    const response = await apiFetch('/api/email-sync/run-now', {
+      method: 'POST',
+    });
+
+    return parseResponse<RunEmailSyncResponse>(response);
+  },
+
+  async listEmailSyncJobs(): Promise<EmailSyncJobHistoryItem[]> {
+    const response = await apiFetch('/api/email-sync/jobs?pageSize=20');
+    return parseResponse<EmailSyncJobHistoryItem[]>(response);
   },
 };

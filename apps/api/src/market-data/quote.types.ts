@@ -6,7 +6,7 @@ export interface MarketQuote {
   name?: string;
   price: Decimal;
   currency: string;
-  provider: 'YAHOO_FINANCE';
+  provider: 'EASTMONEY';
   source: 'LIVE' | 'CACHE';
   fetchedAt: Date;
 }

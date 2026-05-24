@@ -33,7 +33,7 @@ export interface DashboardSummaryDto {
     rates: Record<string, number>;
   };
   marketData: {
-    provider: 'YAHOO_FINANCE';
+    provider: 'EASTMONEY';
     missingQuoteSymbols: string[];
   };
   debug?: {

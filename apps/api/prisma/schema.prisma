@@ -72,6 +72,7 @@ enum CashFlowType {
 
 enum MarketDataProvider {
   YAHOO_FINANCE
+  EASTMONEY
 }
 
 enum DuplicateStrategy {
@@ -106,7 +107,14 @@ enum EmailMessageStatus {
   ERROR
 }
 
+enum EmailSyncTriggerType {
+  MANUAL
+  SCHEDULED
+}
+
 enum EmailSyncJobStatus {
+  PENDING
+  RUNNING
   SUCCESS
   PARTIAL
   FAILED
@@ -139,7 +147,7 @@ model UserSettings {
   id                                 String                @id @default(cuid())
   userId                             String                @unique
   user                               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  marketDataProvider                 MarketDataProvider    @default(YAHOO_FINANCE)
+  marketDataProvider                 MarketDataProvider    @default(EASTMONEY)
   enableQuoteCache                   Boolean               @default(true)
   quoteCacheTtlMinutes               Int                   @default(60)
   enableHistoryCache                 Boolean               @default(true)
@@ -158,8 +166,12 @@ model UserSettings {
   emailConnectionStatus              EmailConnectionStatus @default(DISCONNECTED)
   emailLastTestAt                    DateTime?
   emailLastSyncAt                    DateTime?
+  emailLastSyncStatus                EmailSyncJobStatus?
+  emailLastSyncErrorMessage          String?
   emailErrorMessage                  String?
   emailDefaultScanRange              EmailScanRange        @default(SCAN_3D)
+  emailAutoSyncEnabled               Boolean               @default(true)
+  emailSyncTime                      String                @default("07:00")
   emailOnlyIbkrEmails                Boolean               @default(true)
   emailOnlyPdfAttachments            Boolean               @default(true)
   emailMarkAsRead                    Boolean               @default(false)
@@ -198,21 +210,29 @@ model EmailSyncJob {
   userId          String
   user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   emailAccountId  String
+  triggerType     EmailSyncTriggerType @default(MANUAL)
+  jobKey          String?
   status          EmailSyncJobStatus
   startedAt       DateTime           @default(now())
   finishedAt      DateTime?
   scannedCount    Int                @default(0)
   matchedCount    Int                @default(0)
   attachmentCount Int                @default(0)
+  parsedTradeCount Int               @default(0)
   newCount        Int                @default(0)
+  insertedCount   Int                @default(0)
   duplicateCount  Int                @default(0)
   errorCount      Int                @default(0)
   errorMessage    String?
+  warnings        Json?
   createdAt       DateTime           @default(now())
 
   @@index([userId])
   @@index([emailAccountId])
+  @@index([triggerType])
+  @@index([status])
   @@index([createdAt])
+  @@unique([jobKey])
   @@map("email_sync_jobs")
 }
 
@@ -222,7 +242,7 @@ model SymbolMapping {
   user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   sourceSymbol String
   targetSymbol String
-  provider     MarketDataProvider @default(YAHOO_FINANCE)
+  provider     MarketDataProvider @default(EASTMONEY)
   note         String?
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt

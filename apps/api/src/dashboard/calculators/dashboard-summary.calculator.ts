@@ -85,7 +85,7 @@ export function calculateDashboardSummary(
     currencyBreakdown: cashMetrics.currencyBreakdown,
     exchangeRate: getDashboardExchangeRateConfigSummary(),
     marketData: {
-      provider: 'YAHOO_FINANCE',
+      provider: 'EASTMONEY',
       missingQuoteSymbols,
     },
     debug: {

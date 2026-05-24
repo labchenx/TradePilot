@@ -233,3 +233,44 @@ export interface ConfirmEmailImportResponse {
   errorCount: number;
   warnings: string[];
 }
+
+export type EmailSyncTriggerType = 'MANUAL' | 'SCHEDULED';
+export type EmailSyncJobStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'SUCCESS'
+  | 'PARTIAL'
+  | 'FAILED';
+
+export interface EmailSyncJobHistoryItem {
+  id: string;
+  triggerType: EmailSyncTriggerType;
+  status: EmailSyncJobStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  scannedCount: number;
+  matchedCount: number;
+  attachmentCount: number;
+  parsedTradeCount: number;
+  newCount: number;
+  insertedCount: number;
+  duplicateCount: number;
+  errorCount: number;
+  errorMessage: string | null;
+  warnings: string[];
+}
+
+export interface RunEmailSyncResponse {
+  jobId: string | null;
+  importJobId: string | null;
+  triggerType: EmailSyncTriggerType;
+  status: EmailSyncJobStatus;
+  scannedCount: number;
+  matchedCount: number;
+  attachmentCount: number;
+  parsedTradeCount: number;
+  insertedCount: number;
+  duplicateCount: number;
+  errorCount: number;
+  warnings: string[];
+}

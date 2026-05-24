@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from './auth/auth.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { EmailSyncModule } from './email-sync/email-sync.module';
@@ -11,6 +12,7 @@ import { TransactionEventsModule } from './transaction-events/transaction-events
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     HealthModule,

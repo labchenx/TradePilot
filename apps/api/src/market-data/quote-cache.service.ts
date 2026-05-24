@@ -18,7 +18,7 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
   if (value === undefined) return undefined;
 
   // Prisma Json 不能包含 undefined。通过 JSON round-trip 清理第三方返回对象，
-  // 这样后续排查行情字段时仍能看到 Yahoo 当时返回了什么。
+  // 这样后续排查行情字段时仍能看到 EastMoney 当时返回了什么。
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
@@ -54,7 +54,7 @@ export class QuoteCacheService {
   }
 
   /**
-   * Yahoo 临时失败时，按 symbol 回退到最近一次成功保存的快照。
+   * EastMoney 临时失败时，按 symbol 回退到最近一次成功保存的快照。
    * 这可以避免 Dashboard 因第三方接口抖动而把总资产、市值全部显示为 --。
    */
   async getLatestQuotes(symbols: QuoteLookupInput[]) {
@@ -62,10 +62,15 @@ export class QuoteCacheService {
 
     await Promise.all(
       symbols.map(async ({ symbol, providerSymbol }) => {
-        const snapshot = await this.prisma.marketQuoteSnapshot.findFirst({
-          where: { symbol },
-          orderBy: { fetchedAt: 'desc' },
-        });
+        const snapshot =
+          (await this.prisma.marketQuoteSnapshot.findFirst({
+            where: { symbol, provider: 'EASTMONEY' },
+            orderBy: { fetchedAt: 'desc' },
+          })) ??
+          (await this.prisma.marketQuoteSnapshot.findFirst({
+            where: { symbol },
+            orderBy: { fetchedAt: 'desc' },
+          }));
 
         if (!snapshot) return;
 
@@ -75,7 +80,7 @@ export class QuoteCacheService {
           name: snapshot.name ?? undefined,
           price: new Decimal(snapshot.price),
           currency: snapshot.currency,
-          provider: 'YAHOO_FINANCE',
+          provider: 'EASTMONEY',
           source: 'CACHE',
           fetchedAt: snapshot.fetchedAt,
         });

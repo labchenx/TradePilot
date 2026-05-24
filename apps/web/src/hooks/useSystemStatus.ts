@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { settingsService } from '@/services';
 import type { SettingsStatus } from '@/types';
+import { DATA_SYNC_STATUS_UPDATED_EVENT } from '@/utils/systemStatusEvents';
 
 export function useSystemStatus() {
   const [status, setStatus] = useState<SettingsStatus | null>(null);
@@ -25,6 +26,23 @@ export function useSystemStatus() {
 
   useEffect(() => {
     void refetch();
+  }, [refetch]);
+
+  useEffect(() => {
+    const handleDataSyncStatusUpdated = () => {
+      void refetch();
+    };
+
+    window.addEventListener(
+      DATA_SYNC_STATUS_UPDATED_EVENT,
+      handleDataSyncStatusUpdated,
+    );
+    return () => {
+      window.removeEventListener(
+        DATA_SYNC_STATUS_UPDATED_EVENT,
+        handleDataSyncStatusUpdated,
+      );
+    };
   }, [refetch]);
 
   return { status, loading, error, refetch };

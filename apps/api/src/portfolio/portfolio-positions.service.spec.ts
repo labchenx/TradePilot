@@ -53,7 +53,7 @@ describe('PortfolioPositionsService', () => {
               name: 'Microsoft Corporation',
               price: new Decimal(125),
               currency: 'USD',
-              provider: 'YAHOO_FINANCE',
+              provider: 'EASTMONEY',
               source: 'LIVE',
               fetchedAt: new Date('2026-01-02T00:00:00.000Z'),
             },

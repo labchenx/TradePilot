@@ -1,12 +1,12 @@
 import Decimal from 'decimal.js';
+import { EastMoneyProvider } from './eastmoney-provider';
 import { QuoteCacheService } from './quote-cache.service';
 import { QuoteService } from './quote-service';
-import { YahooProvider } from './yahoo-provider';
 
-function createYahooProviderMock(
-  getQuotes: YahooProvider['getQuotes'],
-): YahooProvider {
-  return { getQuotes } as YahooProvider;
+function createEastMoneyProviderMock(
+  getQuotes: EastMoneyProvider['getQuotes'],
+): EastMoneyProvider {
+  return { getQuotes } as EastMoneyProvider;
 }
 
 function createQuoteCacheMock(overrides: Partial<QuoteCacheService> = {}) {
@@ -21,23 +21,23 @@ function createQuoteCacheMock(overrides: Partial<QuoteCacheService> = {}) {
 }
 
 describe('QuoteService', () => {
-  it('saves a quote snapshot after a successful Yahoo quote request', async () => {
-    const yahooProvider = createYahooProviderMock(async () => ({
-      NVDA: {
+  it('saves a quote snapshot after a successful EastMoney quote request', async () => {
+    const eastMoneyProvider = createEastMoneyProviderMock(async () => ({
+      '105:NVDA': {
         symbol: 'NVDA',
-        regularMarketPrice: 150,
+        latestPrice: 150,
         currency: 'USD',
-        shortName: 'NVIDIA Corporation',
+        name: 'NVIDIA Corporation',
       },
     }));
     const quoteCache = createQuoteCacheMock();
-    const service = new QuoteService(yahooProvider, quoteCache);
+    const service = new QuoteService(eastMoneyProvider, quoteCache);
 
     const result = await service.getCurrentQuotes(['NVDA']);
 
     expect(result.quotesBySymbol.get('NVDA')).toMatchObject({
       symbol: 'NVDA',
-      providerSymbol: 'NVDA',
+      providerSymbol: '105:NVDA',
       name: 'NVIDIA Corporation',
       currency: 'USD',
       source: 'LIVE',
@@ -46,15 +46,59 @@ describe('QuoteService', () => {
     expect(quoteCache.saveSnapshots).toHaveBeenCalledWith([
       expect.objectContaining({
         quote: expect.objectContaining({ symbol: 'NVDA', source: 'LIVE' }),
-        rawData: expect.objectContaining({ shortName: 'NVIDIA Corporation' }),
+        rawData: expect.objectContaining({ name: 'NVIDIA Corporation' }),
       }),
     ]);
   });
 
-  it('falls back to the latest cached quote when Yahoo has no usable price', async () => {
+  it('retries each symbol after a failed batch request', async () => {
+    const getQuotes = jest
+      .fn<ReturnType<EastMoneyProvider['getQuotes']>, Parameters<EastMoneyProvider['getQuotes']>>()
+      .mockRejectedValueOnce(new Error('network unavailable'))
+      .mockResolvedValueOnce({
+        '105:NVDA': {
+          symbol: 'NVDA',
+          latestPrice: 150,
+          currency: 'USD',
+          name: 'NVIDIA Corporation',
+        },
+      });
+    const eastMoneyProvider = createEastMoneyProviderMock(getQuotes);
+    const quoteCache = createQuoteCacheMock();
+    const service = new QuoteService(eastMoneyProvider, quoteCache);
+
+    const result = await service.getCurrentQuotes(['NVDA']);
+
+    expect(getQuotes).toHaveBeenCalledTimes(2);
+    expect(result.quotesBySymbol.get('NVDA')?.price.toNumber()).toBe(150);
+    expect(result.warnings).toContain('批量行情请求失败，已按单个股票重试。');
+  });
+
+  it('keeps the actual EastMoney market in the saved provider symbol', async () => {
+    const eastMoneyProvider = createEastMoneyProviderMock(async () => ({
+      '105:TSM': {
+        symbol: 'TSM',
+        latestPrice: 404.52,
+        currency: 'USD',
+        name: '台积电',
+        market: 106,
+      },
+    }));
+    const quoteCache = createQuoteCacheMock();
+    const service = new QuoteService(eastMoneyProvider, quoteCache);
+
+    const result = await service.getCurrentQuotes(['TSM']);
+
+    expect(result.quotesBySymbol.get('TSM')).toMatchObject({
+      providerSymbol: '106:TSM',
+      currency: 'USD',
+    });
+  });
+
+  it('falls back to the latest cached quote when EastMoney has no usable price', async () => {
     const cachedAt = new Date('2026-05-15T12:00:00.000Z');
-    const yahooProvider = createYahooProviderMock(async () => ({
-      NVDA: {
+    const eastMoneyProvider = createEastMoneyProviderMock(async () => ({
+      '105:NVDA': {
         symbol: 'NVDA',
         currency: 'USD',
       },
@@ -70,7 +114,7 @@ describe('QuoteService', () => {
               name: 'NVIDIA Corporation',
               price: new Decimal(149),
               currency: 'USD',
-              provider: 'YAHOO_FINANCE' as const,
+              provider: 'EASTMONEY' as const,
               source: 'CACHE' as const,
               fetchedAt: cachedAt,
             },
@@ -78,7 +122,7 @@ describe('QuoteService', () => {
         ]),
       ),
     });
-    const service = new QuoteService(yahooProvider, quoteCache);
+    const service = new QuoteService(eastMoneyProvider, quoteCache);
 
     const result = await service.getCurrentQuotes(['NVDA']);
 
@@ -91,5 +135,38 @@ describe('QuoteService', () => {
     expect(result.warnings.some((warning) => warning.includes('NVDA'))).toBe(
       true,
     );
+  });
+
+  it('falls back to legacy cache when EastMoney does not support a symbol', async () => {
+    const cachedAt = new Date('2026-05-15T12:00:00.000Z');
+    const eastMoneyProvider = createEastMoneyProviderMock(async () => ({}));
+    const quoteCache = createQuoteCacheMock({
+      getLatestQuotes: jest.fn(async () =>
+        new Map([
+          [
+            'BRK B',
+            {
+              symbol: 'BRK B',
+              providerSymbol: 'BRK-B',
+              name: 'Berkshire Hathaway Inc.',
+              price: new Decimal(486.38),
+              currency: 'USD',
+              provider: 'EASTMONEY' as const,
+              source: 'CACHE' as const,
+              fetchedAt: cachedAt,
+            },
+          ],
+        ]),
+      ),
+    });
+    const service = new QuoteService(eastMoneyProvider, quoteCache);
+
+    const result = await service.getCurrentQuotes(['BRK B']);
+
+    expect(result.quotesBySymbol.get('BRK B')).toMatchObject({
+      source: 'CACHE',
+      providerSymbol: 'BRK-B',
+    });
+    expect(result.quotesBySymbol.get('BRK B')?.price.toNumber()).toBe(486.38);
   });
 });

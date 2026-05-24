@@ -12,6 +12,7 @@ import {
   EmailConnectionStatus,
   EmailProvider,
   EmailScanRange,
+  EmailSyncJobStatus,
   IbkrEventType,
   ImportSource,
   MarketDataProvider,
@@ -64,6 +65,7 @@ const EMAIL_PROVIDER_CONFIG: Record<
     emailPattern: /^[^@\s]+@163\.com$/i,
   },
 };
+const EMAIL_AUTO_SYNC_TIME = '07:00';
 
 function compactDate(value?: Date | null) {
   return value ? value.toISOString() : null;
@@ -105,8 +107,12 @@ function serializeEmailSettings(settings: {
   emailConnectionStatus: EmailConnectionStatus;
   emailLastTestAt: Date | null;
   emailLastSyncAt: Date | null;
+  emailLastSyncStatus: EmailSyncJobStatus | null;
+  emailLastSyncErrorMessage: string | null;
   emailErrorMessage: string | null;
   emailDefaultScanRange: EmailScanRange;
+  emailAutoSyncEnabled: boolean;
+  emailSyncTime: string;
   emailOnlyIbkrEmails: boolean;
   emailOnlyPdfAttachments: boolean;
   emailMarkAsRead: boolean;
@@ -122,8 +128,12 @@ function serializeEmailSettings(settings: {
     status: settings.emailConnectionStatus,
     lastTestAt: compactDate(settings.emailLastTestAt),
     lastSyncAt: compactDate(settings.emailLastSyncAt),
+    lastSyncStatus: settings.emailLastSyncStatus,
+    lastSyncErrorMessage: settings.emailLastSyncErrorMessage,
     errorMessage: settings.emailErrorMessage,
     defaultScanRange: settings.emailDefaultScanRange,
+    autoSyncEnabled: settings.emailAutoSyncEnabled,
+    syncTime: settings.emailSyncTime,
     onlyIbkrEmails: settings.emailOnlyIbkrEmails,
     onlyPdfAttachments: settings.emailOnlyPdfAttachments,
     markAsRead: settings.emailMarkAsRead,
@@ -194,6 +204,7 @@ export class SettingsService {
       quoteCacheCount,
       priceHistoryCount,
       lastImport,
+      lastEmailSyncJob,
       lastQuote,
       lastPortfolioSnapshot,
       lastPositionSnapshot,
@@ -218,6 +229,11 @@ export class SettingsService {
         where: { userId },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, finishedAt: true },
+      }),
+      this.prisma.emailSyncJob.findFirst({
+        where: { userId },
+        orderBy: { startedAt: 'desc' },
+        select: { startedAt: true, finishedAt: true },
       }),
       symbols.length
         ? this.prisma.marketQuoteSnapshot.findFirst({
@@ -251,6 +267,15 @@ export class SettingsService {
       quoteCacheCount,
       priceHistoryCount,
       lastImportAt: compactDate(lastImport?.finishedAt ?? lastImport?.createdAt),
+      lastEmailSyncAt: compactDate(
+        lastEmailSyncJob?.finishedAt ?? lastEmailSyncJob?.startedAt,
+      ),
+      lastDataSyncAt: compactDate(
+        maxDate(
+          lastImport?.finishedAt ?? lastImport?.createdAt,
+          lastEmailSyncJob?.finishedAt ?? lastEmailSyncJob?.startedAt,
+        ),
+      ),
       lastQuoteUpdatedAt: compactDate(lastQuote?.fetchedAt),
       lastSnapshotGeneratedAt: compactDate(
         maxDate(lastPortfolioSnapshot?.updatedAt, lastPositionSnapshot?.updatedAt),
@@ -269,7 +294,7 @@ export class SettingsService {
 
     return {
       provider: settings.marketDataProvider,
-      providerLabel: 'Yahoo Finance',
+      providerLabel: 'EastMoney / 东方财富',
       enableQuoteCache: settings.enableQuoteCache,
       quoteCacheTtlMinutes: settings.quoteCacheTtlMinutes,
       enableHistoryCache: settings.enableHistoryCache,
@@ -279,7 +304,7 @@ export class SettingsService {
       priceHistoryCount: status.priceHistoryCount,
       lastQuoteUpdatedAt: status.lastQuoteUpdatedAt,
       warnings: [
-        'Yahoo Finance is an unofficial market data source. Temporary failures are reported as warnings and should not break the page.',
+        'EastMoney is a third-party market data source. Temporary failures are reported as warnings and should not break the page.',
       ],
     };
   }
@@ -289,7 +314,7 @@ export class SettingsService {
       where: { userId },
       create: {
         userId,
-        marketDataProvider: dto.provider ?? MarketDataProvider.YAHOO_FINANCE,
+        marketDataProvider: dto.provider ?? MarketDataProvider.EASTMONEY,
         enableQuoteCache: dto.enableQuoteCache,
         quoteCacheTtlMinutes: dto.quoteCacheTtlMinutes,
         enableHistoryCache: dto.enableHistoryCache,
@@ -309,7 +334,7 @@ export class SettingsService {
       enableHistoryCache: settings.enableHistoryCache,
       updatedAt: settings.updatedAt.toISOString(),
       warnings: [
-        'Yahoo Finance is an unofficial market data source. Keep fallback and cache warnings visible to users.',
+        'EastMoney is a third-party market data source. Keep fallback and cache warnings visible to users.',
       ],
     };
   }
@@ -370,6 +395,11 @@ export class SettingsService {
     const providerConfig = getEmailProviderConfig(dto.provider);
     const email = normalizeEmail(dto.email);
     this.assertEmailMatchesProvider(email, dto.provider);
+    if (dto.syncTime && dto.syncTime !== EMAIL_AUTO_SYNC_TIME) {
+      throw new BadRequestException(
+        'Email auto sync time is fixed at 07:00 in the first version.',
+      );
+    }
 
     const authSecretEncrypted = dto.authCode
       ? this.encryptSecret(dto.authCode)
@@ -388,9 +418,11 @@ export class SettingsService {
         emailConnectionStatus: EmailConnectionStatus.DISCONNECTED,
         emailErrorMessage: null,
         emailDefaultScanRange: dto.defaultScanRange ?? EmailScanRange.SCAN_3D,
+        emailAutoSyncEnabled: dto.autoSyncEnabled ?? true,
+        emailSyncTime: dto.syncTime ?? EMAIL_AUTO_SYNC_TIME,
         emailOnlyIbkrEmails: dto.onlyIbkrEmails ?? true,
         emailOnlyPdfAttachments: dto.onlyPdfAttachments ?? true,
-        emailMarkAsRead: dto.markAsRead ?? false,
+        emailMarkAsRead: false,
       },
       update: {
         emailProvider: dto.provider,
@@ -402,9 +434,11 @@ export class SettingsService {
           ? { emailAuthSecretEncrypted: authSecretEncrypted }
           : {}),
         emailDefaultScanRange: dto.defaultScanRange,
+        emailAutoSyncEnabled: dto.autoSyncEnabled,
+        emailSyncTime: dto.syncTime ?? EMAIL_AUTO_SYNC_TIME,
         emailOnlyIbkrEmails: dto.onlyIbkrEmails,
         emailOnlyPdfAttachments: dto.onlyPdfAttachments,
-        emailMarkAsRead: dto.markAsRead,
+        emailMarkAsRead: false,
         emailErrorMessage: null,
       },
     });
@@ -513,7 +547,7 @@ export class SettingsService {
           userId,
           sourceSymbol: normalizeSymbol(dto.sourceSymbol),
           targetSymbol: normalizeSymbol(dto.targetSymbol),
-          provider: dto.provider ?? MarketDataProvider.YAHOO_FINANCE,
+          provider: dto.provider ?? MarketDataProvider.EASTMONEY,
           note: normalizeNote(dto.note),
         },
       });
@@ -572,7 +606,7 @@ export class SettingsService {
   async resolveProviderSymbols(
     userId: string | undefined,
     symbols: string[],
-    provider = MarketDataProvider.YAHOO_FINANCE,
+    provider = MarketDataProvider.EASTMONEY,
   ) {
     const uniqueSymbols = Array.from(
       new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean)),

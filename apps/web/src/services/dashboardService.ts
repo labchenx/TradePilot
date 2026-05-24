@@ -35,7 +35,7 @@ async function requestDashboardApi<T>(path: string): Promise<T> {
 }
 
 function marketSubtitle(value: number | null) {
-  return value === null ? '行情缺失，暂不展示半完整估算' : 'Yahoo Finance quote';
+  return value === null ? '行情缺失，暂不展示半完整估算' : 'EastMoney quote';
 }
 
 function currencySubtitle(summary: DashboardSummaryApiDto) {

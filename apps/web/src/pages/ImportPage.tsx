@@ -6,6 +6,7 @@ import {
   History,
   Mail,
   Paperclip,
+  PlayCircle,
   Search,
   Settings,
   Trash2,
@@ -22,6 +23,7 @@ import { importService, settingsService } from '@/services';
 import type {
   ClearDataResponse,
   ConfirmEmailImportResponse,
+  EmailSyncJobHistoryItem,
   EmailImportMailStatus,
   EmailImportPreviewResponse,
   EmailImportScanRange,
@@ -32,7 +34,9 @@ import type {
   ImportJobDetail,
   ImportPageStatus,
   ImportPreviewResponse,
+  RunEmailSyncResponse,
 } from '@/types';
+import { notifyDataSyncStatusUpdated } from '@/utils/systemStatusEvents';
 
 type ImportTab = 'csv' | 'email';
 
@@ -43,7 +47,7 @@ function getStep(status: ImportPageStatus) {
   return 1;
 }
 
-function statusTone(status: ImportHistoryItem['status']) {
+function statusTone(status: ImportHistoryItem['status'] | EmailSyncJobHistoryItem['status']) {
   if (status === 'SUCCESS') return 'green';
   if (status === 'FAILED') return 'red';
   if (status === 'PARTIAL') return 'yellow';
@@ -96,6 +100,10 @@ export function ImportPage() {
   const [emailConfirming, setEmailConfirming] = useState(false);
   const [emailConfirmResult, setEmailConfirmResult] =
     useState<ConfirmEmailImportResponse | null>(null);
+  const [emailSyncJobs, setEmailSyncJobs] = useState<EmailSyncJobHistoryItem[]>([]);
+  const [emailRunNowResult, setEmailRunNowResult] =
+    useState<RunEmailSyncResponse | null>(null);
+  const [emailRunNowRunning, setEmailRunNowRunning] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
 
   const refreshHistory = async () => {
@@ -109,7 +117,16 @@ export function ImportPage() {
   useEffect(() => {
     void refreshHistory();
     void loadEmailSettings();
+    void refreshEmailSyncJobs();
   }, []);
+
+  const refreshEmailSyncJobs = async () => {
+    try {
+      setEmailSyncJobs(await importService.listEmailSyncJobs());
+    } catch {
+      setEmailSyncJobs([]);
+    }
+  };
 
   const loadEmailSettings = async () => {
     setEmailSettingsLoading(true);
@@ -155,6 +172,7 @@ export function ImportPage() {
       );
       setResult(response);
       setStatus('success');
+      notifyDataSyncStatusUpdated();
       await refreshHistory();
     } catch (confirmError) {
       setStatus('previewReady');
@@ -233,7 +251,7 @@ export function ImportPage() {
 
     try {
       setEmailScanResult(await importService.scanAndPreviewIbkrMails(emailRange));
-      await loadEmailSettings();
+      await Promise.all([loadEmailSettings(), refreshEmailSyncJobs()]);
     } catch (scanError) {
       setEmailError(scanError instanceof Error ? scanError.message : String(scanError));
     } finally {
@@ -253,7 +271,8 @@ export function ImportPage() {
         emailScanResult.trades,
       );
       setEmailConfirmResult(response);
-      await Promise.all([refreshHistory(), loadEmailSettings()]);
+      notifyDataSyncStatusUpdated();
+      await Promise.all([refreshHistory(), loadEmailSettings(), refreshEmailSyncJobs()]);
       setEmailScanResult({
         ...emailScanResult,
         trades: emailScanResult.trades.map((trade) =>
@@ -266,6 +285,27 @@ export function ImportPage() {
       );
     } finally {
       setEmailConfirming(false);
+    }
+  };
+
+  const runEmailSyncNow = async () => {
+    setEmailRunNowRunning(true);
+    setEmailRunNowResult(null);
+    setEmailError(null);
+
+    try {
+      const response = await importService.runEmailSyncNow();
+      setEmailRunNowResult(response);
+      notifyDataSyncStatusUpdated();
+      await Promise.all([
+        refreshHistory(),
+        loadEmailSettings(),
+        refreshEmailSyncJobs(),
+      ]);
+    } catch (runError) {
+      setEmailError(runError instanceof Error ? runError.message : String(runError));
+    } finally {
+      setEmailRunNowRunning(false);
     }
   };
 
@@ -343,10 +383,14 @@ export function ImportPage() {
           scanning={emailScanning}
           result={emailScanResult}
           confirmResult={emailConfirmResult}
+          syncJobs={emailSyncJobs}
+          runNowResult={emailRunNowResult}
+          runNowRunning={emailRunNowRunning}
           error={emailError}
           onRangeChange={setEmailRange}
           onRefreshSettings={loadEmailSettings}
           onScan={scanIbkrEmails}
+          onRunNow={runEmailSyncNow}
           onConfirm={confirmEmailImport}
           confirming={emailConfirming}
         />
@@ -541,10 +585,14 @@ function EmailImportPanel({
   confirming,
   result,
   confirmResult,
+  syncJobs,
+  runNowResult,
+  runNowRunning,
   error,
   onRangeChange,
   onRefreshSettings,
   onScan,
+  onRunNow,
   onConfirm,
 }: {
   settings: EmailSettings | null;
@@ -554,10 +602,14 @@ function EmailImportPanel({
   confirming: boolean;
   result: EmailImportPreviewResponse | null;
   confirmResult: ConfirmEmailImportResponse | null;
+  syncJobs: EmailSyncJobHistoryItem[];
+  runNowResult: RunEmailSyncResponse | null;
+  runNowRunning: boolean;
   error: string | null;
   onRangeChange: (range: EmailImportScanRange) => void;
   onRefreshSettings: () => void;
   onScan: () => void;
+  onRunNow: () => void;
   onConfirm: () => void;
 }) {
   const isReady =
@@ -580,6 +632,14 @@ function EmailImportPanel({
           </div>
           <Button variant="outline" size="sm" onClick={onRefreshSettings}>
             刷新邮箱配置
+          </Button>
+          <Button
+            variant="outline"
+            disabled={!isReady || runNowRunning}
+            onClick={onRunNow}
+          >
+            <PlayCircle className="mr-2 h-4 w-4" />
+            {runNowRunning ? 'Syncing...' : 'Run Auto Sync Now'}
           </Button>
         </div>
 
@@ -639,6 +699,25 @@ function EmailImportPanel({
         </p>
       </CardShell>
 
+      {runNowResult ? (
+        <CardShell className="p-5">
+          <h3 className="mb-3 font-semibold text-neutral-900 dark:text-white">
+            Auto Sync Result
+          </h3>
+          <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-7">
+            <InfoTile label="Status" value={runNowResult.status} />
+            <InfoTile label="Scanned" value={runNowResult.scannedCount} />
+            <InfoTile label="Matched" value={runNowResult.matchedCount} />
+            <InfoTile label="Parsed" value={runNowResult.parsedTradeCount} />
+            <InfoTile label="Inserted" value={runNowResult.insertedCount} />
+            <InfoTile label="Duplicate" value={runNowResult.duplicateCount} />
+            <InfoTile label="Error" value={runNowResult.errorCount} />
+          </div>
+        </CardShell>
+      ) : null}
+
+      <EmailSyncHistory jobs={syncJobs} />
+
       {error ? (
         <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -661,6 +740,81 @@ function EmailImportPanel({
         />
       ) : null}
     </div>
+  );
+}
+
+function EmailSyncHistory({ jobs }: { jobs: EmailSyncJobHistoryItem[] }) {
+  return (
+    <CardShell className="overflow-hidden">
+      <div className="border-b border-neutral-200 p-5 dark:border-neutral-800">
+        <h3 className="flex items-center gap-2 font-semibold text-neutral-900 dark:text-white">
+          <History className="h-5 w-5 text-blue-500" />
+          Email Sync History
+        </h3>
+      </div>
+      {jobs.length === 0 ? (
+        <div className="p-8 text-center text-sm text-neutral-500 dark:text-neutral-400">
+          No email sync jobs yet.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1040px] text-left text-sm">
+            <thead className="bg-neutral-50 text-xs uppercase text-neutral-500 dark:bg-neutral-900/50 dark:text-neutral-400">
+              <tr>
+                <th className="px-5 py-3 font-medium">Started</th>
+                <th className="px-5 py-3 font-medium">Trigger</th>
+                <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 text-right font-medium">Scanned</th>
+                <th className="px-5 py-3 text-right font-medium">Matched</th>
+                <th className="px-5 py-3 text-right font-medium">PDF</th>
+                <th className="px-5 py-3 text-right font-medium">Parsed</th>
+                <th className="px-5 py-3 text-right font-medium">Inserted</th>
+                <th className="px-5 py-3 text-right font-medium">Duplicate</th>
+                <th className="px-5 py-3 text-right font-medium">Error</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
+              {jobs.map((job) => (
+                <tr key={job.id}>
+                  <td className="whitespace-nowrap px-5 py-3">
+                    {formatDateTime(job.startedAt)}
+                  </td>
+                  <td className="px-5 py-3">
+                    <Tag color={job.triggerType === 'SCHEDULED' ? 'blue' : 'gray'}>
+                      {job.triggerType}
+                    </Tag>
+                  </td>
+                  <td className="px-5 py-3">
+                    <Tag color={statusTone(job.status)}>{job.status}</Tag>
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {job.scannedCount}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {job.matchedCount}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {job.attachmentCount}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {job.parsedTradeCount}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {job.insertedCount}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {job.duplicateCount}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    {job.errorCount}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </CardShell>
   );
 }
 

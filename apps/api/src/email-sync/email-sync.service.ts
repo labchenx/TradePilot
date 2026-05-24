@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { createDecipheriv, createHash } from 'crypto';
 import { PDFParse } from 'pdf-parse';
 import { ImapFlow } from 'imapflow';
@@ -18,12 +19,15 @@ import {
   EmailMessageStatus,
   EmailProvider,
   EmailSyncJobStatus,
+  EmailSyncTriggerType,
   Prisma,
 } from '@prisma/client';
-import { QuoteService } from '../market-data/quote-service';
+import { MarketMaintenanceService } from '../market-data/market-maintenance.service';
 import { MonthlySnapshotService } from '../portfolio/monthly-snapshot.service';
+import { PortfolioAnalyticsService } from '../portfolio/portfolio-analytics.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfirmEmailImportDto } from './dto/confirm-email-import.dto';
+import { ListEmailSyncJobsDto } from './dto/list-email-sync-jobs.dto';
 import { SearchIbkrMailsDto } from './dto/search-ibkr-mails.dto';
 import {
   ConfirmEmailImportResponse,
@@ -31,6 +35,8 @@ import {
   EmailImportMailDiagnostic,
   EmailImportMailItem,
   EmailPdfTradePreview,
+  EmailSyncJobHistoryItem,
+  RunEmailSyncResponse,
   ScanAndPreviewIbkrMailsResponse,
   SearchIbkrMailsResponse,
 } from './email-sync.types';
@@ -60,6 +66,9 @@ const IMAP_SOCKET_TIMEOUT_MS = 20_000;
 const IMAP_DOWNLOAD_TIMEOUT_MS = 30_000;
 const PDF_TEXT_TIMEOUT_MS = 15_000;
 const MAX_PDF_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const EMAIL_AUTO_SYNC_CRON = '0 0 7 * * *';
+const EMAIL_AUTO_SYNC_TIME = '07:00';
+const EMAIL_AUTO_SYNC_TIMEZONE = process.env.APP_TIMEZONE ?? 'Asia/Shanghai';
 
 const EMAIL_PROVIDER_CONFIG: Record<
   EmailProvider,
@@ -106,6 +115,14 @@ interface CandidateUidResult {
   truncated: boolean;
 }
 
+interface EmailImportPersistenceResult {
+  importJobId: string;
+  insertedRows: Prisma.TransactionEventCreateManyInput[];
+  earliestDate?: Date;
+  updatedAccountIds: string[];
+  response: ConfirmEmailImportResponse;
+}
+
 @Injectable()
 export class EmailSyncService {
   private readonly logger = new Logger(EmailSyncService.name);
@@ -113,7 +130,8 @@ export class EmailSyncService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly monthlySnapshotService: MonthlySnapshotService,
-    private readonly quoteService: QuoteService,
+    private readonly marketMaintenanceService: MarketMaintenanceService,
+    private readonly portfolioAnalyticsService: PortfolioAnalyticsService,
   ) {}
 
   async searchIbkrMails(
@@ -142,6 +160,54 @@ export class EmailSyncService {
     return this.runScan(userId, dto, { parsePdf: true });
   }
 
+  @Cron(EMAIL_AUTO_SYNC_CRON, { timeZone: EMAIL_AUTO_SYNC_TIMEZONE })
+  async runDailyScheduledSync() {
+    const accounts = await this.prisma.userSettings.findMany({
+      where: {
+        emailAutoSyncEnabled: true,
+        emailSyncTime: EMAIL_AUTO_SYNC_TIME,
+        emailConnectionStatus: EmailConnectionStatus.CONNECTED,
+        emailAddress: { not: null },
+        emailAuthSecretEncrypted: { not: null },
+      },
+    });
+
+    for (const account of accounts) {
+      try {
+        await this.runAccountSync(account, EmailSyncTriggerType.SCHEDULED);
+      } catch (error) {
+        this.logger.warn(
+          `Scheduled email sync failed for user ${account.userId}: ${sanitizeError(error)}`,
+        );
+      }
+    }
+  }
+
+  async runNow(userId: string): Promise<RunEmailSyncResponse> {
+    const settings = await this.getConnectedEmailSettings(userId);
+    return this.runAccountSync(settings, EmailSyncTriggerType.MANUAL);
+  }
+
+  async listJobs(
+    userId: string,
+    query: ListEmailSyncJobsDto,
+  ): Promise<EmailSyncJobHistoryItem[]> {
+    const page = Math.max(1, query.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 20));
+    const jobs = await this.prisma.emailSyncJob.findMany({
+      where: {
+        userId,
+        triggerType: query.triggerType,
+        status: query.status,
+      },
+      orderBy: { startedAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+
+    return jobs.map(serializeEmailSyncJob);
+  }
+
   async confirmImport(
     userId: string,
     dto: ConfirmEmailImportDto,
@@ -151,21 +217,244 @@ export class EmailSyncService {
       throw new BadRequestException('No email PDF trade previews are available to confirm.');
     }
 
+    const result = await this.importEmailTrades(userId, trades);
+    await this.runPostImportActions(userId, result);
+
+    return result.response;
+  }
+
+  private async getConnectedEmailSettings(userId: string) {
+    const settings = await this.prisma.userSettings.findUnique({
+      where: { userId },
+    });
+
+    if (!settings?.emailAddress || !settings.emailAuthSecretEncrypted) {
+      throw new BadRequestException(
+        'Please configure an email account in Settings before syncing.',
+      );
+    }
+
+    if (settings.emailConnectionStatus !== EmailConnectionStatus.CONNECTED) {
+      throw new BadRequestException(
+        'Email account is not connected. Please test the connection in Settings first.',
+      );
+    }
+
+    return settings;
+  }
+
+  private async runAccountSync(
+    settings: Awaited<ReturnType<EmailSyncService['getConnectedEmailSettings']>>,
+    triggerType: EmailSyncTriggerType,
+  ): Promise<RunEmailSyncResponse> {
+    const startedAt = new Date();
+    const jobKey =
+      triggerType === EmailSyncTriggerType.SCHEDULED
+        ? buildScheduledJobKey(settings.userId, settings.id, startedAt)
+        : null;
+
+    if (triggerType === EmailSyncTriggerType.SCHEDULED) {
+      const runningJob = await this.prisma.emailSyncJob.findFirst({
+        where: {
+          userId: settings.userId,
+          emailAccountId: settings.id,
+          triggerType,
+          status: {
+            in: [EmailSyncJobStatus.PENDING, EmailSyncJobStatus.RUNNING],
+          },
+          startedAt: {
+            gte: startOfTodayInTimezone(startedAt, EMAIL_AUTO_SYNC_TIMEZONE),
+          },
+        },
+        orderBy: { startedAt: 'desc' },
+      });
+
+      if (runningJob) {
+        return {
+          jobId: runningJob.id,
+          importJobId: null,
+          triggerType,
+          status: EmailSyncJobStatus.PARTIAL,
+          scannedCount: runningJob.scannedCount,
+          matchedCount: runningJob.matchedCount,
+          attachmentCount: runningJob.attachmentCount,
+          parsedTradeCount: runningJob.parsedTradeCount,
+          insertedCount: runningJob.insertedCount,
+          duplicateCount: runningJob.duplicateCount,
+          errorCount: runningJob.errorCount,
+          warnings: ['A scheduled email sync job is already running today.'],
+        };
+      }
+    }
+
+    let job;
+    try {
+      job = await this.prisma.emailSyncJob.create({
+        data: {
+          userId: settings.userId,
+          emailAccountId: settings.id,
+          triggerType,
+          jobKey,
+          status: EmailSyncJobStatus.RUNNING,
+          startedAt,
+        },
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        return {
+          jobId: null,
+          importJobId: null,
+          triggerType,
+          status: EmailSyncJobStatus.PARTIAL,
+          scannedCount: 0,
+          matchedCount: 0,
+          attachmentCount: 0,
+          parsedTradeCount: 0,
+          insertedCount: 0,
+          duplicateCount: 0,
+          errorCount: 0,
+          warnings: ['A scheduled email sync job has already been created for today.'],
+        };
+      }
+      throw error;
+    }
+
+    const providerConfig = EMAIL_PROVIDER_CONFIG[settings.emailProvider];
+    const emailAddress = settings.emailAddress;
+    const encryptedSecret = settings.emailAuthSecretEncrypted;
+    if (!emailAddress || !encryptedSecret) {
+      throw new BadRequestException(
+        'Please configure an email account in Settings before syncing.',
+      );
+    }
+    const warnings: string[] = [];
+
+    try {
+      const scan = await this.scanMailbox({
+        userId: settings.userId,
+        emailAccountId: settings.id,
+        email: emailAddress,
+        authCode: this.decryptSecret(encryptedSecret),
+        host: providerConfig.imapHost,
+        port: providerConfig.imapPort,
+        secure: providerConfig.secure,
+        range: scanRangeFromSetting(settings.emailDefaultScanRange),
+        parsePdf: true,
+        duplicateMode: 'any-record',
+      });
+      warnings.push(...scan.warnings);
+
+      const importResult =
+        scan.trades.length > 0
+          ? await this.importEmailTrades(settings.userId, scan.trades)
+          : null;
+      if (importResult) {
+        warnings.push(...importResult.response.warnings);
+        const postResult = await this.runPostImportActions(
+          settings.userId,
+          importResult,
+        );
+        warnings.push(...postResult.warnings);
+      }
+
+      const insertedCount = importResult?.response.insertedCount ?? 0;
+      const duplicateCount = Math.max(
+        scan.duplicateCount,
+        importResult?.response.duplicateCount ?? 0,
+      );
+      const errorCount = Math.max(
+        scan.errorCount,
+        importResult?.response.errorCount ?? 0,
+      );
+      const status =
+        errorCount > 0 || warnings.some((warning) => warning.startsWith('Post-import'))
+          ? EmailSyncJobStatus.PARTIAL
+          : EmailSyncJobStatus.SUCCESS;
+
+      await this.prisma.$transaction([
+        this.prisma.emailSyncJob.update({
+          where: { id: job.id },
+          data: {
+            status,
+            finishedAt: new Date(),
+            scannedCount: scan.scannedCount,
+            matchedCount: scan.matchedCount,
+            attachmentCount: scan.attachmentCount,
+            parsedTradeCount: scan.parsedTradeCount,
+            newCount: scan.newCount,
+            insertedCount,
+            duplicateCount,
+            errorCount,
+            warnings: warnings as unknown as Prisma.InputJsonValue,
+          },
+        }),
+        this.prisma.userSettings.update({
+          where: { userId: settings.userId },
+          data: {
+            emailLastSyncAt: new Date(),
+            emailLastSyncStatus: status,
+            emailLastSyncErrorMessage: null,
+            emailErrorMessage: null,
+          },
+        }),
+      ]);
+
+      return {
+        jobId: job.id,
+        importJobId: importResult?.importJobId ?? null,
+        triggerType,
+        status,
+        scannedCount: scan.scannedCount,
+        matchedCount: scan.matchedCount,
+        attachmentCount: scan.attachmentCount,
+        parsedTradeCount: scan.parsedTradeCount,
+        insertedCount,
+        duplicateCount,
+        errorCount,
+        warnings,
+      };
+    } catch (error) {
+      const message = sanitizeError(error);
+      this.logger.warn(
+        `Email ${triggerType.toLowerCase()} sync failed for user ${settings.userId}: ${message}`,
+      );
+      await this.prisma.$transaction([
+        this.prisma.emailSyncJob.update({
+          where: { id: job.id },
+          data: {
+            status: EmailSyncJobStatus.FAILED,
+            finishedAt: new Date(),
+            errorMessage: message,
+            errorCount: 1,
+          },
+        }),
+        this.prisma.userSettings.update({
+          where: { userId: settings.userId },
+          data: {
+            emailLastSyncAt: new Date(),
+            emailLastSyncStatus: EmailSyncJobStatus.FAILED,
+            emailLastSyncErrorMessage: message,
+          },
+        }),
+      ]);
+
+      throw new BadRequestException(message);
+    }
+  }
+
+  private async importEmailTrades(
+    userId: string,
+    trades: EmailPdfTradePreview[],
+  ): Promise<EmailImportPersistenceResult> {
     const settings = await this.prisma.userSettings.findUnique({
       where: { userId },
       select: {
-        autoRefreshQuotesAfterImport: true,
-        autoRegenerateSnapshotsAfterImport: true,
         saveRawData: true,
       },
     });
     const saveRawData = settings?.saveRawData ?? true;
-    const autoRefreshQuotesAfterImport =
-      settings?.autoRefreshQuotesAfterImport ?? true;
-    const autoRegenerateSnapshotsAfterImport =
-      settings?.autoRegenerateSnapshotsAfterImport ?? true;
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const importJob = await tx.importJob.create({
         data: {
           userId,
@@ -296,38 +585,66 @@ export class EmailSyncService {
         },
       };
     });
+  }
 
-    if (result.earliestDate && autoRegenerateSnapshotsAfterImport) {
-      const startMonth = result.earliestDate.toISOString().slice(0, 7);
-      const accountIds = Array.from(
-        new Set(['ALL', ...result.updatedAccountIds.filter(Boolean)]),
-      );
-      await Promise.all(
-        accountIds.map((accountId) =>
-          this.monthlySnapshotService.regenerateSnapshotsFromMonth(
-            userId,
-            accountId,
-            startMonth,
-          ),
-        ),
-      );
+  private async runPostImportActions(
+    userId: string,
+    result: EmailImportPersistenceResult,
+  ) {
+    const warnings: string[] = [];
+    if (result.insertedRows.length === 0) {
+      return { warnings };
     }
 
-    if (autoRefreshQuotesAfterImport) {
-      const symbols = Array.from(
-        new Set(
-          result.insertedRows
-            .map((row) => row.symbol)
-            .filter((symbol): symbol is string => typeof symbol === 'string'),
-        ),
-      );
-      if (symbols.length > 0) {
-        const quoteResult = await this.quoteService.getCurrentQuotes(symbols, userId);
-        result.response.warnings.push(...quoteResult.warnings);
+    const settings = await this.prisma.userSettings.findUnique({
+      where: { userId },
+      select: {
+        autoRefreshQuotesAfterImport: true,
+        autoRegenerateSnapshotsAfterImport: true,
+        autoRecalculateMetricsAfterImport: true,
+      },
+    });
+
+    if (result.earliestDate && (settings?.autoRegenerateSnapshotsAfterImport ?? true)) {
+      try {
+        const startMonth = result.earliestDate.toISOString().slice(0, 7);
+        const accountIds = Array.from(
+          new Set(['ALL', ...result.updatedAccountIds.filter(Boolean)]),
+        );
+        await Promise.all(
+          accountIds.map((accountId) =>
+            this.monthlySnapshotService.regenerateSnapshotsFromMonth(
+              userId,
+              accountId,
+              startMonth,
+            ),
+          ),
+        );
+      } catch (error) {
+        warnings.push(`Post-import snapshot regeneration failed: ${sanitizeError(error)}`);
       }
     }
 
-    return result.response;
+    if (settings?.autoRefreshQuotesAfterImport ?? true) {
+      try {
+        const quoteResult = await this.marketMaintenanceService.refreshQuotes(userId);
+        warnings.push(...quoteResult.warnings);
+      } catch (error) {
+        warnings.push(`Post-import quote refresh failed: ${sanitizeError(error)}`);
+      }
+    }
+
+    if (settings?.autoRecalculateMetricsAfterImport ?? true) {
+      try {
+        const analytics = await this.portfolioAnalyticsService.getAnalytics(userId);
+        warnings.push(...analytics.warnings);
+      } catch (error) {
+        warnings.push(`Post-import metric recalculation failed: ${sanitizeError(error)}`);
+      }
+    }
+
+    result.response.warnings.push(...warnings);
+    return { warnings };
   }
 
   private async runScan(
@@ -357,7 +674,8 @@ export class EmailSyncService {
       data: {
         userId,
         emailAccountId: settings.id,
-        status: EmailSyncJobStatus.FAILED,
+        triggerType: EmailSyncTriggerType.MANUAL,
+        status: EmailSyncJobStatus.RUNNING,
         startedAt,
       },
     });
@@ -373,6 +691,7 @@ export class EmailSyncService {
         secure: providerConfig.secure,
         range: dto.range ?? '3d',
         parsePdf: options.parsePdf,
+        duplicateMode: 'imported-only',
       });
 
       const status =
@@ -389,15 +708,20 @@ export class EmailSyncService {
             scannedCount: result.scannedCount,
             matchedCount: result.matchedCount,
             attachmentCount: result.attachmentCount,
+            parsedTradeCount: result.parsedTradeCount,
             newCount: result.newCount,
+            insertedCount: 0,
             duplicateCount: result.duplicateCount,
             errorCount: result.errorCount,
+            warnings: result.warnings as unknown as Prisma.InputJsonValue,
           },
         }),
         this.prisma.userSettings.update({
           where: { userId },
           data: {
             emailLastSyncAt: new Date(),
+            emailLastSyncStatus: status,
+            emailLastSyncErrorMessage: null,
             emailErrorMessage: null,
           },
         }),
@@ -416,6 +740,14 @@ export class EmailSyncService {
           errorCount: 1,
         },
       });
+      await this.prisma.userSettings.update({
+        where: { userId },
+        data: {
+          emailLastSyncAt: new Date(),
+          emailLastSyncStatus: EmailSyncJobStatus.FAILED,
+          emailLastSyncErrorMessage: message,
+        },
+      });
 
       throw new BadRequestException(message);
     }
@@ -431,6 +763,7 @@ export class EmailSyncService {
     secure: boolean;
     range: '3d' | '7d' | '30d' | '90d';
     parsePdf: boolean;
+    duplicateMode: 'imported-only' | 'any-record';
   }): Promise<ScanMailboxResult> {
     const client = new ImapFlow({
       host: input.host,
@@ -490,11 +823,13 @@ export class EmailSyncService {
       const importedRecords = existingRecords.filter(
         (record) => record.status === EmailMessageStatus.IMPORTED,
       );
+      const duplicateRecords =
+        input.duplicateMode === 'any-record' ? existingRecords : importedRecords;
       const existingMessageIds = new Set(
-        importedRecords.map((record) => record.messageId),
+        duplicateRecords.map((record) => record.messageId),
       );
       const existingAttachmentHashes = new Set(
-        importedRecords.flatMap((record) =>
+        duplicateRecords.flatMap((record) =>
           jsonStringArray(record.attachmentHashes),
         ),
       );
@@ -922,6 +1257,63 @@ export class EmailSyncService {
       );
     }
   }
+}
+
+function scanRangeFromSetting(range: Prisma.UserSettingsGetPayload<object>['emailDefaultScanRange']) {
+  if (range === 'SCAN_90D') return '90d';
+  if (range === 'SCAN_30D') return '30d';
+  if (range === 'SCAN_7D') return '7d';
+  return '3d';
+}
+
+function serializeEmailSyncJob(job: Prisma.EmailSyncJobGetPayload<object>): EmailSyncJobHistoryItem {
+  return {
+    id: job.id,
+    triggerType: job.triggerType,
+    status: job.status,
+    startedAt: job.startedAt.toISOString(),
+    finishedAt: job.finishedAt?.toISOString() ?? null,
+    scannedCount: job.scannedCount,
+    matchedCount: job.matchedCount,
+    attachmentCount: job.attachmentCount,
+    parsedTradeCount: job.parsedTradeCount,
+    newCount: job.newCount,
+    insertedCount: job.insertedCount,
+    duplicateCount: job.duplicateCount,
+    errorCount: job.errorCount,
+    errorMessage: job.errorMessage,
+    warnings: jsonStringArray(job.warnings ?? []),
+  };
+}
+
+function buildScheduledJobKey(userId: string, emailAccountId: string, date: Date) {
+  return [
+    userId,
+    emailAccountId,
+    formatDateInTimezone(date, EMAIL_AUTO_SYNC_TIMEZONE),
+    'daily-email-sync',
+  ].join(':');
+}
+
+function formatDateInTimezone(date: Date, timeZone: string) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+function startOfTodayInTimezone(date: Date, timeZone: string) {
+  const day = formatDateInTimezone(date, timeZone);
+  return new Date(`${day}T00:00:00.000Z`);
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  );
 }
 
 export function isIbkrTradeReport(

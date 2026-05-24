@@ -89,7 +89,7 @@ export interface DashboardSummaryApiDto {
     rates: Record<string, number>;
   };
   marketData?: {
-    provider: 'YAHOO_FINANCE';
+    provider: 'EASTMONEY';
     missingQuoteSymbols: string[];
   };
   debug?: unknown;

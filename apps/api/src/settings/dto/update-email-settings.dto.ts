@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  Matches,
   MinLength,
 } from 'class-validator';
 import { EmailProvider, EmailScanRange } from '@prisma/client';
@@ -23,6 +24,15 @@ export class UpdateEmailSettingsDto {
   @IsOptional()
   @IsEnum(EmailScanRange)
   defaultScanRange?: EmailScanRange;
+
+  @IsOptional()
+  @IsBoolean()
+  autoSyncEnabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}:\d{2}$/)
+  syncTime?: string;
 
   @IsOptional()
   @IsBoolean()

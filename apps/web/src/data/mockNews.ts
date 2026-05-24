@@ -41,7 +41,7 @@ export const mockNews: NewsItem[] = [
     id: 'news-5',
     symbol: 'AMD',
     title: 'Analyst Upgrades AMD Price Target citing Data Center Growth',
-    source: 'Yahoo Finance',
+    source: 'EastMoney',
     publishedAt: '2026-04-23 10:10',
     summary:
       'A major Wall Street firm upgraded AMD, highlighting stronger data center revenue and execution progress.',
@@ -65,4 +65,3 @@ export const mockAiSummary: AiSummary = {
     'Potential supply chain constraints for advanced chip packaging.',
   ],
 };
-
