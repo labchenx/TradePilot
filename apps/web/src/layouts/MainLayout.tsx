@@ -1,4 +1,5 @@
 import { Outlet } from 'react-router';
+import { IbkrCsvImportGuide } from '@/components/import';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TopBar } from '@/components/layout/TopBar';
 
@@ -12,7 +13,7 @@ export function MainLayout() {
           <Outlet />
         </div>
       </main>
+      <IbkrCsvImportGuide autoOpen triggerVariant="none" />
     </div>
   );
 }
-

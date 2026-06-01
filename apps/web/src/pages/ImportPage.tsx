@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Button, CardShell, PageTitle, Tag } from '@/components/common';
 import {
+  IbkrCsvImportGuide,
   ImportInputPanel,
   ImportPreviewTable,
   ImportResultCard,
@@ -314,6 +315,7 @@ export function ImportPage() {
       <PageTitle
         title={'\u6570\u636e\u5bfc\u5165 Data Import'}
         description="IBKR CSV import and Email PDF trade preview"
+        actions={<IbkrCsvImportGuide />}
       />
 
       <div className="flex flex-wrap gap-2 rounded-xl border border-neutral-200 bg-white p-1 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">

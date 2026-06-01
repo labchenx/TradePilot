@@ -4,7 +4,7 @@ import { CurrentUser } from '../auth/auth.types';
 import { AssetTrendRange } from './dto/asset-trend.dto';
 import { DashboardService } from './dashboard.service';
 
-@Controller('dashboard')
+@Controller(['dashboard', 'api/dashboard'])
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
