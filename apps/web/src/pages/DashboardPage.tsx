@@ -7,6 +7,7 @@ import {
   ReturnBreakdown,
 } from '@/components/dashboard';
 import { useDashboard } from '@/hooks';
+import { summarizeDashboardWarnings } from '@/utils';
 
 export function DashboardPage() {
   const {
@@ -19,7 +20,7 @@ export function DashboardPage() {
     refetchAssetTrend,
   } = useDashboard();
   const warnings = dashboard?.warnings ?? [];
-  const [primaryWarning, ...detailWarnings] = warnings;
+  const warningSummary = summarizeDashboardWarnings(warnings);
 
   if (loading) {
     return (
@@ -47,21 +48,33 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {primaryWarning ? (
+      {warningSummary ? (
         <div className="rounded-[14px] border border-yellow-200 bg-yellow-50 p-4 shadow-sm dark:border-yellow-900/60 dark:bg-yellow-950/30">
           <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300">数据口径提示</p>
-          <p className="mt-1 text-sm leading-6 text-yellow-800 dark:text-yellow-200">{primaryWarning}</p>
-          {detailWarnings.length > 0 ? (
+          <p className="mt-1 text-sm leading-6 text-yellow-800 dark:text-yellow-200">{warningSummary.headline}</p>
+          {warningSummary.groups.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {warningSummary.groups.map((group) => (
+                <span
+                  key={group.key}
+                  className="rounded-md border border-yellow-300/70 bg-white/60 px-2 py-1 text-xs font-medium text-yellow-800 dark:border-yellow-700/80 dark:bg-yellow-950/40 dark:text-yellow-200"
+                >
+                  {group.title} {group.count} 条
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {warningSummary.details.length > 0 ? (
             <details className="mt-3 text-sm text-yellow-800 dark:text-yellow-200">
-              <summary className="cursor-pointer font-medium">查看 {detailWarnings.length} 条明细 warning</summary>
+              <summary className="cursor-pointer font-medium">查看 {warningSummary.total} 条明细 warning</summary>
               <ul className="mt-2 list-disc space-y-1 pl-5">
-                {detailWarnings.slice(0, 6).map((warning) => (
+                {warningSummary.details.map((warning) => (
                   <li key={warning}>{warning}</li>
                 ))}
               </ul>
-              {detailWarnings.length > 6 ? (
+              {warningSummary.hiddenDetailCount > 0 ? (
                 <p className="mt-2 text-xs text-yellow-700 dark:text-yellow-300">
-                  还有 {detailWarnings.length - 6} 条明细，可在接口返回中查看完整列表。
+                  还有 {warningSummary.hiddenDetailCount} 条明细，可在接口返回中查看完整列表。
                 </p>
               ) : null}
             </details>
