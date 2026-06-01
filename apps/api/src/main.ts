@@ -9,12 +9,26 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(',') ?? [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      'http://localhost:5174',
-      'http://127.0.0.1:5174',
-    ],
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      // CORS_ORIGIN 环境变量优先
+      const allowedOrigins = process.env.CORS_ORIGIN?.split(',');
+      if (allowedOrigins?.length) {
+        if (!origin || allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error('Not allowed by CORS'), false);
+      }
+
+      // 开发模式：允许所有 localhost/127.0.0.1 来源
+      if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+
+      callback(new Error('Not allowed by CORS'), false);
+    },
     credentials: true,
   });
 

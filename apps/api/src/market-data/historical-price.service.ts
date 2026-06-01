@@ -43,10 +43,27 @@ export class HistoricalPriceService {
     monthStart: Date,
     snapshotDate: Date,
   ) {
-    return this.prisma.priceHistory.findFirst({
+    const currentProviderPrice = await this.prisma.priceHistory.findFirst({
       where: {
         symbol,
         source: 'EASTMONEY',
+        date: {
+          gte: monthStart,
+          lte: snapshotDate,
+        },
+      },
+      orderBy: { date: 'desc' },
+    });
+
+    if (currentProviderPrice) {
+      return currentProviderPrice;
+    }
+
+    // Provider swaps should not invalidate good historical closes already cached
+    // from an older source. Month-end snapshot math only needs a trusted close.
+    return this.prisma.priceHistory.findFirst({
+      where: {
+        symbol,
         date: {
           gte: monthStart,
           lte: snapshotDate,

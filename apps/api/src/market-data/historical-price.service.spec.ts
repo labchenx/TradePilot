@@ -18,10 +18,49 @@ function createProviderMock(
 }
 
 describe('HistoricalPriceService', () => {
+  it('reuses legacy cached month-end prices before requesting the provider', async () => {
+    const date = new Date('2025-01-31T00:00:00.000Z');
+    const prisma = createPrismaMock();
+    prisma.priceHistory.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      symbol: 'WMT',
+      providerSymbol: 'WMT',
+      date,
+      close: new Prisma.Decimal(98.16),
+      adjustedClose: new Prisma.Decimal(98.16),
+      currency: 'USD',
+      source: 'YAHOO_FINANCE',
+    });
+    const getDailyPrices = jest.fn<
+      ReturnType<EastMoneyProvider['getDailyPrices']>,
+      Parameters<EastMoneyProvider['getDailyPrices']>
+    >();
+    const service = new HistoricalPriceService(
+      prisma as never,
+      createProviderMock(getDailyPrices),
+    );
+
+    const result = await service.getMonthEndClosePrice(
+      'WMT',
+      new Date('2025-01-01T00:00:00.000Z'),
+      date,
+    );
+
+    expect(getDailyPrices).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      symbol: 'WMT',
+      providerSymbol: 'WMT',
+      source: 'CACHE',
+      currency: 'USD',
+      warnings: [],
+    });
+    expect(result.close?.toNumber()).toBe(98.16);
+  });
+
   it('falls back to the NYSE EastMoney market when the default US market has no daily prices', async () => {
     const date = new Date('2026-05-28T00:00:00.000Z');
     const prisma = createPrismaMock();
     prisma.priceHistory.findFirst
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         symbol: 'MCD',

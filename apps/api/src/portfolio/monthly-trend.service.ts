@@ -76,6 +76,16 @@ function hasCashReport(value: unknown) {
   return typeof summary.cashReport?.cashBalance === 'number';
 }
 
+function monthStart(month: string) {
+  const [year, monthNumber] = month.split('-').map(Number);
+  return new Date(Date.UTC(year, monthNumber - 1, 1));
+}
+
+function monthEnd(month: string) {
+  const [year, monthNumber] = month.split('-').map(Number);
+  return new Date(Date.UTC(year, monthNumber, 0));
+}
+
 @Injectable()
 export class MonthlyTrendService {
   constructor(
@@ -156,7 +166,31 @@ export class MonthlyTrendService {
         };
       }),
       warnings: missingPriceWarnings,
+      missingPriceRows,
     };
+  }
+
+  private async findEarliestRepairableMissingPriceMonth(
+    missingPriceRows: Array<{ month: string; symbol: string }>,
+  ) {
+    for (const row of missingPriceRows) {
+      const cachedPrice = await this.prisma.priceHistory.findFirst({
+        where: {
+          symbol: row.symbol,
+          date: {
+            gte: monthStart(row.month),
+            lte: monthEnd(row.month),
+          },
+        },
+        orderBy: { date: 'desc' },
+      });
+
+      if (cachedPrice) {
+        return row.month;
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -175,6 +209,19 @@ export class MonthlyTrendService {
     if (result.points.length === 0) {
       await this.monthlySnapshotService.generateMonthlySnapshots(userId, accountId);
       result = await this.findSnapshotPoints(userId, accountId);
+    } else if (result.missingPriceRows.length > 0) {
+      const repairFromMonth = await this.findEarliestRepairableMissingPriceMonth(
+        result.missingPriceRows,
+      );
+
+      if (repairFromMonth) {
+        await this.monthlySnapshotService.regenerateSnapshotsFromMonth(
+          userId,
+          accountId,
+          repairFromMonth,
+        );
+        result = await this.findSnapshotPoints(userId, accountId);
+      }
     }
 
     return filterAssetTrendPoints(result.points, range);
