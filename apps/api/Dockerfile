@@ -29,22 +29,11 @@ FROM node:22-alpine AS production
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@10.10.0 --activate
-
-# Copy workspace files
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
-COPY apps/api/package.json ./apps/api/
-
-# Install only production dependencies
-RUN pnpm install --frozen-lockfile --filter api... --prod
-
-# Copy built output, prisma schema, and prisma client from build stage
+# Copy runtime dependencies and built API artifacts from the build stage.
+COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/prisma ./apps/api/prisma
-COPY --from=build /app/apps/api/node_modules/.prisma ./apps/api/node_modules/.prisma
-COPY --from=build /app/apps/api/node_modules/prisma ./apps/api/node_modules/prisma
-COPY --from=build /app/apps/api/node_modules/@prisma ./apps/api/node_modules/@prisma
-COPY --from=build /app/apps/api/node_modules/.bin/prisma ./apps/api/node_modules/.bin/prisma
+COPY --from=build /app/package.json ./package.json
 
 # Run as non-root
 RUN addgroup -g 1001 -S tradepilot && adduser -S tradepilot -u 1001 -G tradepilot
@@ -53,6 +42,7 @@ USER tradepilot
 
 ENV NODE_ENV=production
 ENV PORT=4100
+ENV NODE_PATH=/app/node_modules/.pnpm/node_modules:/app/node_modules
 
 EXPOSE 4100
 

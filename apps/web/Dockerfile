@@ -15,9 +15,8 @@ COPY apps/web/index.html ./apps/web/
 # Install dependencies
 RUN pnpm install --frozen-lockfile --filter web...
 
-# Copy web source
-COPY apps/web/src ./apps/web/src/
-COPY apps/web/public ./apps/web/public/
+# Copy the full web app so Vite-local config/plugins and PWA assets are present.
+COPY apps/web ./apps/web/
 
 # Build
 WORKDIR /app/apps/web
