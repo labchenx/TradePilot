@@ -33,6 +33,7 @@ services:
       dockerfile: apps/api/Dockerfile
     container_name: tradepilot-api
     restart: unless-stopped
+    command: ["sh", "-c", "cd apps/api && ./node_modules/.bin/prisma migrate deploy --schema=prisma/schema.prisma && node dist/main.js"]
     environment:
       NODE_ENV: production
       PORT: 4100

@@ -75,7 +75,7 @@ echo ""
 echo -e "${YELLOW}[3/6] 构建 Docker 镜像...${NC}"
 echo "  这需要几分钟时间..."
 
-docker compose -f docker-compose.prod.yml build --pull
+docker compose -f docker-compose.prod.yml --env-file .env.production build --pull
 
 echo -e "${GREEN}  镜像构建完成${NC}"
 echo ""
@@ -106,9 +106,7 @@ done
 # 运行 Prisma migrate
 echo "  执行数据库迁移..."
 docker compose -f docker-compose.prod.yml exec -T api \
-  npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma || {
-  echo -e "${YELLOW}  迁移命令未成功（可能已是最新），跳过...${NC}"
-}
+  sh -lc 'cd apps/api && ./node_modules/.bin/prisma migrate deploy --schema=prisma/schema.prisma'
 
 echo ""
 
@@ -130,10 +128,8 @@ echo ""
 # Detect deployment mode
 if docker compose -f docker-compose.prod.yml port web 80 2>/dev/null | grep -q "127.0.0.1"; then
   echo "  Docker web 容器绑定在 127.0.0.1（内部端口模式）"
-  echo "  如果未配置 Caddy，请将 docker-compose.prod.yml 中 web 的 ports 改为:"
-  echo "    ports:"
-  echo "      - \"80:80\""
-  echo "  然后执行: docker compose -f docker-compose.prod.yml up -d web"
+  echo "  HTTPS/Caddy 模式请确认 Caddy 反向代理到 127.0.0.1:${WEB_PORT_VAL:-8080}"
+  echo "  如果要 HTTP 直连，请在 .env.production 中设置 WEB_BIND=0.0.0.0 WEB_PORT=80"
 elif [ "${WEB_PORT_VAL}" = "80" ]; then
   echo "  访问地址: http://${SERVER_IP}"
 else

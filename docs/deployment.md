@@ -252,16 +252,18 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d api
 
 ### 4.4 手动部署（不使用脚本时）
 
+`api` 容器启动时会先执行 `prisma migrate deploy`，确保数据库表结构和当前代码匹配；下面的手动迁移命令可作为部署后的显式校验。
+
 ```bash
 # 1. 构建镜像
-docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml --env-file .env.production build
 
 # 2. 启动所有服务
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 
 # 3. 等待数据库就绪后执行迁移
 docker compose -f docker-compose.prod.yml exec -T api \
-  npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
+  sh -lc 'cd apps/api && ./node_modules/.bin/prisma migrate deploy --schema=prisma/schema.prisma'
 
 # 4. 验证
 docker compose -f docker-compose.prod.yml ps
@@ -461,10 +463,10 @@ docker compose -f docker-compose.prod.yml down -v
 ```bash
 cd /opt/tradepilot
 git pull
-docker compose -f docker-compose.prod.yml build --pull
+docker compose -f docker-compose.prod.yml --env-file .env.production build --pull
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 docker compose -f docker-compose.prod.yml exec -T api \
-  npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
+  sh -lc 'cd apps/api && ./node_modules/.bin/prisma migrate deploy --schema=prisma/schema.prisma'
 
 # 清理旧镜像
 docker image prune -f
@@ -513,9 +515,9 @@ docker compose -f docker-compose.prod.yml logs postgres
 docker compose -f docker-compose.prod.yml down -v
 docker compose -f docker-compose.prod.yml up -d postgres
 sleep 10
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
 docker compose -f docker-compose.prod.yml exec -T api \
-  npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
+  sh -lc 'cd apps/api && ./node_modules/.bin/prisma migrate deploy --schema=prisma/schema.prisma'
 ```
 
 ### 邮箱授权码解密失败
