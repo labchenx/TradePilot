@@ -54,8 +54,14 @@ export class QuoteCacheService {
   }
 
   /**
-   * EastMoney 临时失败时，按 symbol 回退到最近一次成功保存的快照。
-   * 这可以避免 Dashboard 因第三方接口抖动而把总资产、市值全部显示为 --。
+   * EastMoney 临时失败时，按 symbol 回退到本地缓存。
+   *
+   * 优先级：
+   * 1. market_quote_snapshots：最近一次实时行情快照；
+   * 2. price_history：最近一条历史收盘价。
+   *
+   * 第二层兜底能复用服务器上已经同步好的历史行情缓存，避免第三方接口抖动时
+   * Dashboard 因没有实时快照而把总资产、市值全部显示为 --。
    */
   async getLatestQuotes(symbols: QuoteLookupInput[]) {
     const result = new Map<string, MarketQuote>();
@@ -72,17 +78,40 @@ export class QuoteCacheService {
             orderBy: { fetchedAt: 'desc' },
           }));
 
-        if (!snapshot) return;
+        if (snapshot) {
+          result.set(symbol, {
+            symbol,
+            providerSymbol: snapshot.providerSymbol || providerSymbol,
+            name: snapshot.name ?? undefined,
+            price: new Decimal(snapshot.price),
+            currency: snapshot.currency,
+            provider: 'EASTMONEY',
+            source: 'CACHE',
+            fetchedAt: snapshot.fetchedAt,
+          });
+          return;
+        }
+
+        const history =
+          (await this.prisma.priceHistory.findFirst({
+            where: { symbol, source: 'EASTMONEY' },
+            orderBy: { date: 'desc' },
+          })) ??
+          (await this.prisma.priceHistory.findFirst({
+            where: { symbol },
+            orderBy: { date: 'desc' },
+          }));
+
+        if (!history) return;
 
         result.set(symbol, {
           symbol,
-          providerSymbol: snapshot.providerSymbol || providerSymbol,
-          name: snapshot.name ?? undefined,
-          price: new Decimal(snapshot.price),
-          currency: snapshot.currency,
+          providerSymbol: history.providerSymbol || providerSymbol,
+          price: new Decimal(history.adjustedClose ?? history.close),
+          currency: history.currency,
           provider: 'EASTMONEY',
           source: 'CACHE',
-          fetchedAt: snapshot.fetchedAt,
+          fetchedAt: history.date,
         });
       }),
     );

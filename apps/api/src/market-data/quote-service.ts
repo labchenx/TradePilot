@@ -124,20 +124,40 @@ export class QuoteService {
     if (missingQuoteInputs.length > 0) {
       const cachedQuotes =
         await this.quoteCache.getLatestQuotes(missingQuoteInputs);
+      const cacheFallbacks: Array<{ symbol: string; fetchedAt: Date }> = [];
+      const stillMissingSymbols: string[] = [];
 
       for (const { symbol } of missingQuoteInputs) {
         const cachedQuote = cachedQuotes.get(symbol);
 
         if (cachedQuote) {
           quotesBySymbol.set(symbol, cachedQuote);
-          warnings.push(
-            `${symbol} 实时行情不可用，已使用本地缓存价格（${cachedQuote.fetchedAt.toISOString()}）。`,
-          );
+          cacheFallbacks.push({
+            symbol,
+            fetchedAt: cachedQuote.fetchedAt,
+          });
           continue;
         }
 
+        stillMissingSymbols.push(symbol);
+      }
+
+      if (cacheFallbacks.length > 0) {
+        const latestCacheTime = cacheFallbacks
+          .map((item) => item.fetchedAt)
+          .sort((a, b) => b.getTime() - a.getTime())[0];
         warnings.push(
-          `${symbol} 缺少可用行情价格，且本地没有缓存快照，Dashboard 已将相关市值指标标记为 --。`,
+          `实时行情不可用，已使用 ${cacheFallbacks.length} 个本地缓存价格（最新缓存 ${latestCacheTime.toISOString()}）：${formatSymbolList(
+            cacheFallbacks.map((item) => item.symbol),
+          )}。`,
+        );
+      }
+
+      if (stillMissingSymbols.length > 0) {
+        warnings.push(
+          `${formatSymbolList(
+            stillMissingSymbols,
+          )} 缺少可用行情价格，且本地没有缓存价格，Dashboard 已将相关市值指标标记为 --。`,
         );
       }
     }
@@ -151,4 +171,11 @@ export class QuoteService {
 
 function formatProviderSymbol(symbol: EastMoneyProviderSymbol) {
   return `${symbol.market}:${symbol.providerSymbol}`;
+}
+
+function formatSymbolList(symbols: string[]) {
+  const visibleSymbols = symbols.slice(0, 8);
+  const suffix = symbols.length > visibleSymbols.length ? ` 等 ${symbols.length} 个` : '';
+
+  return `${visibleSymbols.join(', ')}${suffix}`;
 }
