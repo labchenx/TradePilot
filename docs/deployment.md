@@ -118,7 +118,8 @@ sudo sysctl -p
 | `JWT_SECRET` | **是** | - | JWT 签名密钥 |
 | `EMAIL_SECRET_KEY` | **是** | - | 邮箱授权码加密密钥 |
 | `JWT_EXPIRES_IN` | 否 | `7d` | JWT 过期时间 |
-| `WEB_PORT` | 否 | `8080` | 宿主机映射端口。`127.0.0.1:WEB_PORT` → 容器内 nginx 的 `80`。配置 HTTPS 后 Caddy 反向代理到 `localhost:8080` |
+| `WEB_BIND` | 否 | `0.0.0.0` | Web 宿主机绑定地址。HTTP 直连模式使用 `0.0.0.0`；HTTPS/Caddy 模式使用 `127.0.0.1`，避免 Docker web 直接对外暴露 |
+| `WEB_PORT` | 否 | `80` | Web 宿主机映射端口。HTTP 直连模式使用 `80`；HTTPS/Caddy 模式使用 `8080`，由 Caddy 反向代理到 `127.0.0.1:8080` |
 | `CORS_ORIGIN` | 否 | `http://localhost` | CORS 来源，部署到服务器后改为实际地址 |
 | `APP_TIMEZONE` | 否 | `Asia/Shanghai` | 应用时区，用于邮件同步等定时任务 |
 | `PORT` | 否 | `4100` | API 内部端口，通常无需修改 |
@@ -163,14 +164,11 @@ CORS_ORIGIN=http://你的服务器IP    # 暂用 http，配置 HTTPS 后改为 h
 
 #### 模式 A：无 HTTPS（快速验证）
 
-`docker-compose.prod.yml` 默认将 web 容器绑定在 `127.0.0.1:8080`。
+如果暂时不用 Caddy/HTTPS，直接通过服务器 IP 访问前端，在 `.env.production` 中配置：
 
-如果暂时不用 Caddy/HTTPS，需要改为直接暴露 80 端口：
-
-```bash
-# 编辑 docker-compose.prod.yml，将 web 的 ports 改为：
-#   ports:
-#     - "80:80"
+```ini
+WEB_BIND=0.0.0.0
+WEB_PORT=80
 ```
 
 然后执行：
@@ -184,7 +182,12 @@ chmod +x deploy.sh
 
 #### 模式 B：配置 HTTPS（推荐，使用 Caddy）
 
-保持 `docker-compose.prod.yml` 不变（web 容器绑定 `127.0.0.1:8080`）。
+使用 Caddy 代理 HTTPS 时，让 Docker web 只监听宿主机本地地址，在 `.env.production` 中配置：
+
+```ini
+WEB_BIND=127.0.0.1
+WEB_PORT=8080
+```
 
 > **前提条件**：你需要一个域名，并且已将域名的 A 记录解析到服务器 IP。
 >
@@ -281,7 +284,7 @@ API 自身的健康端点是 `/health`：
 
 ```bash
 # 容器内直连 API（路径是 /health，不是 /api/health）
-docker compose -f docker-compose.prod.yml exec api wget -qO- http://localhost:4100/health
+docker compose -f docker-compose.prod.yml exec api wget -qO- http://127.0.0.1:4100/health
 # → {"status":"ok"}
 ```
 
@@ -477,7 +480,7 @@ docker image prune -f
 docker inspect tradepilot-api --format '{{json .State.Health}}' | python3 -m json.tool
 
 # 手动测试 API 健康端点（直连 API 内部端口）
-docker compose -f docker-compose.prod.yml exec api wget -qO- http://localhost:4100/health
+docker compose -f docker-compose.prod.yml exec api wget -qO- http://127.0.0.1:4100/health
 ```
 
 ### Caddy 启动失败（端口被占用）
@@ -487,8 +490,9 @@ docker compose -f docker-compose.prod.yml exec api wget -qO- http://localhost:41
 sudo lsof -i :80
 sudo lsof -i :443
 
-# 如果是 Docker 的 web 容器占用，说明 docker-compose.prod.yml 中的 ports
-# 没有正确设置为 127.0.0.1:8080:80。检查：
+# 如果是 Docker 的 web 容器占用，检查 .env.production 中的 WEB_BIND/WEB_PORT：
+# HTTP 直连：WEB_BIND=0.0.0.0 WEB_PORT=80
+# HTTPS/Caddy：WEB_BIND=127.0.0.1 WEB_PORT=8080
 grep -A2 "ports:" docker-compose.prod.yml
 
 # 如果之前用 nginx 占用了 80：
