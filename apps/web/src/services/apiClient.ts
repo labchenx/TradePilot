@@ -1,7 +1,19 @@
 import { getStoredAuthToken, notifyUnauthorized } from './authTokenStorage';
 
 export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4100';
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV ? 'http://localhost:4100/api' : '/api');
+
+function buildApiUrl(path: string) {
+  const baseUrl = API_BASE_URL.replace(/\/+$/, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+
+  if (baseUrl.endsWith('/api') && normalizedPath.startsWith('/api/')) {
+    return `${baseUrl}${normalizedPath.slice('/api'.length)}`;
+  }
+
+  return `${baseUrl}${normalizedPath}`;
+}
 
 export async function apiFetch(path: string, init: RequestInit = {}) {
   const token = getStoredAuthToken();
@@ -13,7 +25,7 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetch(buildApiUrl(path), {
       ...init,
       headers,
     });
