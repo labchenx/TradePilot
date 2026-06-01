@@ -1,0 +1,47 @@
+{
+  "name": "TradePilot",
+  "short_name": "TradePilot",
+  "description": "Personal portfolio tracker for positions, trades, cash flows, imports, and email sync.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#10b981",
+  "orientation": "portrait-primary",
+  "categories": ["finance", "productivity"],
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "icons": [
+    { "src": "/icons/icon-72x72.png", "sizes": "72x72", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-96x96.png", "sizes": "96x96", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-128x128.png", "sizes": "128x128", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-144x144.png", "sizes": "144x144", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-152x152.png", "sizes": "152x152", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-384x384.png", "sizes": "384x384", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "投资总览",
+      "short_name": "总览",
+      "description": "查看资产总览和收益表现",
+      "url": "/dashboard",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "当前持仓",
+      "short_name": "持仓",
+      "description": "查看当前持仓和未实现盈亏",
+      "url": "/holdings",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "交易明细",
+      "short_name": "交易",
+      "description": "查看历史交易记录",
+      "url": "/transactions",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    }
+  ]
+}

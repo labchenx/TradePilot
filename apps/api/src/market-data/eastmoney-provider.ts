@@ -8,6 +8,7 @@ import type {
 import {
   EastMoneyMarket,
   EastMoneyProviderSymbol,
+  getEastMoneyProviderSymbolCandidates,
 } from './symbol-normalizer';
 
 type EmstModule = typeof import('emst');
@@ -179,24 +180,12 @@ function buildQuoteSecids(symbols: EastMoneyProviderSymbol[]) {
   return Array.from(
     new Set(
       symbols.flatMap((symbol) =>
-        getQuoteMarketCandidates(symbol).map(
-          (market) => `${market}.${symbol.providerSymbol}`,
+        getEastMoneyProviderSymbolCandidates(symbol).map(
+          (candidate) => `${candidate.market}.${candidate.providerSymbol}`,
         ),
       ),
     ),
   );
-}
-
-function getQuoteMarketCandidates(symbol: EastMoneyProviderSymbol) {
-  if (/^[A-Z]+$/.test(symbol.providerSymbol)) {
-    if (symbol.market === EastMoneyMarket.US_ETF) {
-      return [EastMoneyMarket.US_ETF, EastMoneyMarket.US, 106];
-    }
-
-    return [symbol.market, 106, EastMoneyMarket.US_ETF];
-  }
-
-  return [symbol.market];
 }
 
 function toEastMoneyDate(value: Date) {

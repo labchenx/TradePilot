@@ -1,5 +1,6 @@
 import {
   EastMoneyMarket,
+  getEastMoneyProviderSymbolCandidates,
   normalizeSymbolForEastMoney,
 } from './symbol-normalizer';
 
@@ -23,5 +24,31 @@ describe('normalizeSymbolForEastMoney', () => {
       market,
       providerKey: `${market}:${providerSymbol}`,
     });
+  });
+});
+
+describe('getEastMoneyProviderSymbolCandidates', () => {
+  it('tries the NYSE market for plain US symbols whose default market has no history', () => {
+    const candidates = getEastMoneyProviderSymbolCandidates(
+      normalizeSymbolForEastMoney('MCD'),
+    );
+
+    expect(candidates.map((candidate) => candidate.providerKey)).toEqual([
+      '105:MCD',
+      '106:MCD',
+      '107:MCD',
+    ]);
+  });
+
+  it('keeps ETF symbols first when the normalizer already knows the ETF market', () => {
+    const candidates = getEastMoneyProviderSymbolCandidates(
+      normalizeSymbolForEastMoney('SPY'),
+    );
+
+    expect(candidates.map((candidate) => candidate.providerKey)).toEqual([
+      '107:SPY',
+      '105:SPY',
+      '106:SPY',
+    ]);
   });
 });

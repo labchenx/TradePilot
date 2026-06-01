@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.gitignore
+*.md
+!README.md
+.env
+.env.*
+!.env.production.example
+*.log
+.DS_Store
+apps/web/dist
+apps/api/dist
+docker-compose.override.yml
+artifacts

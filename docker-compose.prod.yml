@@ -1,0 +1,94 @@
+services:
+  # ---- PostgreSQL ----
+  postgres:
+    image: postgres:16-alpine
+    container_name: tradepilot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tradepilot
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-tradepilot}
+      POSTGRES_DB: tradepilot
+    volumes:
+      - tradepilot-postgres-data:/var/lib/postgresql/data
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradepilot -d tradepilot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Postgres only needs to be accessed by api container internally.
+    # Uncomment below to allow host access (bind to localhost only):
+    # ports:
+    #   - "127.0.0.1:55432:5432"
+
+  # ---- NestJS API ----
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: tradepilot-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4100
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://tradepilot:${DB_PASSWORD:-tradepilot}@postgres:5432/tradepilot
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      EMAIL_SECRET_KEY: ${EMAIL_SECRET_KEY:-change-me-in-production}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4100/health | grep -q ok || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Memory: conservative defaults for 4GB host (leave commented unless needed).
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 512M
+    #     reservations:
+    #       memory: 256M
+
+  # ---- Web (React + nginx) ----
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: tradepilot-web
+    restart: unless-stopped
+    ports:
+      # Bind to localhost only — Caddy on the host listens on :80/:443
+      # and reverse-proxies to this internal port.
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ | grep -q root || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  tradepilot-postgres-data:

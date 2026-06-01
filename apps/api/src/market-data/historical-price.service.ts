@@ -4,7 +4,10 @@ import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { EastMoneyProvider } from './eastmoney-provider';
-import { normalizeSymbolForEastMoney } from './symbol-normalizer';
+import {
+  getEastMoneyProviderSymbolCandidates,
+  normalizeSymbolForEastMoney,
+} from './symbol-normalizer';
 
 export interface MonthEndPriceResult {
   symbol: string;
@@ -130,7 +133,7 @@ export class HistoricalPriceService {
     if (cached) {
       return {
         symbol,
-        providerSymbol: formatProviderSymbol(providerSymbol),
+        providerSymbol: cached.providerSymbol,
         date: cached.date,
         close: new Decimal(cached.close),
         adjustedClose: cached.adjustedClose
@@ -142,14 +145,30 @@ export class HistoricalPriceService {
       };
     }
 
-    try {
-      const prices = await this.eastMoneyProvider.getDailyPrices(
-        providerSymbol,
-        monthStart,
-        addDays(snapshotDate, 1),
-      );
-      await this.saveDailyPrices(symbol, formatProviderSymbol(providerSymbol), prices);
-    } catch {
+    let requestFailed = false;
+    let savedPrices = false;
+
+    for (const candidate of getEastMoneyProviderSymbolCandidates(providerSymbol)) {
+      try {
+        const prices = await this.eastMoneyProvider.getDailyPrices(
+          candidate,
+          monthStart,
+          addDays(snapshotDate, 1),
+        );
+
+        if (prices.length === 0) {
+          continue;
+        }
+
+        await this.saveDailyPrices(symbol, formatProviderSymbol(candidate), prices);
+        savedPrices = true;
+        break;
+      } catch {
+        requestFailed = true;
+      }
+    }
+
+    if (requestFailed && !savedPrices) {
       warnings.push(
         `${symbol} ${monthStart.toISOString().slice(0, 7)} historical price request failed.`,
       );
@@ -180,7 +199,7 @@ export class HistoricalPriceService {
 
     return {
       symbol,
-      providerSymbol: formatProviderSymbol(providerSymbol),
+      providerSymbol: latest.providerSymbol,
       date: latest.date,
       close: new Decimal(latest.close),
       adjustedClose: latest.adjustedClose

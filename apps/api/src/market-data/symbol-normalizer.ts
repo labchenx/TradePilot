@@ -43,6 +43,23 @@ export function normalizeSymbolForEastMoney(symbol: string): EastMoneyProviderSy
   return buildProviderSymbol(providerSymbol, market);
 }
 
+export function getEastMoneyProviderSymbolCandidates(
+  symbol: EastMoneyProviderSymbol,
+): EastMoneyProviderSymbol[] {
+  if (!isUsProviderSymbol(symbol.providerSymbol)) {
+    return [symbol];
+  }
+
+  const markets =
+    symbol.market === EastMoneyMarket.US_ETF
+      ? [EastMoneyMarket.US_ETF, EastMoneyMarket.US, EastMoneyMarket.US_NYSE]
+      : [symbol.market, EastMoneyMarket.US_NYSE, EastMoneyMarket.US_ETF];
+
+  return Array.from(new Set(markets)).map((market) =>
+    buildProviderSymbol(symbol.providerSymbol, market),
+  );
+}
+
 function parseExplicitProviderSymbol(
   value: string,
 ): EastMoneyProviderSymbol | null {
@@ -69,7 +86,7 @@ function normalizeSpecialUsSymbol(
 }
 
 function inferEastMoneyMarket(symbol: string) {
-  if (/^[A-Z]+$/.test(symbol)) {
+  if (isUsProviderSymbol(symbol)) {
     return US_ETF_SYMBOLS.has(symbol)
       ? EastMoneyMarket.US_ETF
       : EastMoneyMarket.US;
@@ -95,4 +112,8 @@ function buildProviderSymbol(
     market,
     providerKey: `${market}:${providerSymbol}`,
   };
+}
+
+function isUsProviderSymbol(symbol: string) {
+  return /^[A-Z_]+$/.test(symbol);
 }
