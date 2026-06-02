@@ -13,11 +13,18 @@ interface PositionLot {
   source: string;
 }
 
+interface ShortLot {
+  quantity: Decimal;
+  proceeds: Decimal;
+}
+
 interface MutablePosition {
   symbol: string;
   lots: PositionLot[];
+  shortLots: ShortLot[];
   remainingQuantity: Decimal;
   remainingCost: Decimal;
+  shortQuantity: Decimal;
   realizedPnl: Decimal;
   totalSellProceeds: Decimal;
   totalAllocatedCost: Decimal;
@@ -39,8 +46,10 @@ function createPosition(symbol: string): MutablePosition {
   return {
     symbol,
     lots: [],
+    shortLots: [],
     remainingQuantity: new Decimal(0),
     remainingCost: new Decimal(0),
+    shortQuantity: new Decimal(0),
     realizedPnl: new Decimal(0),
     totalSellProceeds: new Decimal(0),
     totalAllocatedCost: new Decimal(0),
@@ -55,6 +64,10 @@ function sortEvents(a: DashboardEventRow, b: DashboardEventRow) {
 }
 
 function sumLotQuantity(lots: PositionLot[]) {
+  return lots.reduce((sum, lot) => sum.plus(lot.quantity), new Decimal(0));
+}
+
+function sumShortQuantity(lots: ShortLot[]) {
   return lots.reduce((sum, lot) => sum.plus(lot.quantity), new Decimal(0));
 }
 
@@ -101,6 +114,40 @@ function allocateFifoCost(position: MutablePosition, quantity: Decimal) {
   }
 
   return allocatedCost;
+}
+
+function allocateShortProceeds(position: MutablePosition, quantity: Decimal) {
+  let remainingToAllocate = Decimal.min(quantity, position.shortQuantity);
+  let allocatedProceeds = new Decimal(0);
+
+  while (remainingToAllocate.gt(0) && position.shortLots.length > 0) {
+    const lot = position.shortLots[0];
+    const quantityFromLot = Decimal.min(remainingToAllocate, lot.quantity);
+    const proceedsFromLot = lot.proceeds.mul(quantityFromLot).div(lot.quantity);
+
+    allocatedProceeds = allocatedProceeds.plus(proceedsFromLot);
+    lot.quantity = lot.quantity.minus(quantityFromLot);
+    lot.proceeds = lot.proceeds.minus(proceedsFromLot);
+    remainingToAllocate = remainingToAllocate.minus(quantityFromLot);
+
+    if (lot.quantity.lte(0)) {
+      position.shortLots.shift();
+    }
+  }
+
+  return allocatedProceeds;
+}
+
+function proportionalAmount(
+  amount: Decimal,
+  partQuantity: Decimal,
+  totalQuantity: Decimal,
+) {
+  if (partQuantity.lte(0) || totalQuantity.lte(0)) {
+    return new Decimal(0);
+  }
+
+  return amount.mul(partQuantity).div(totalQuantity);
 }
 
 function parseSplitRatio(event: DashboardEventRow): Decimal | null {
@@ -152,6 +199,7 @@ function shouldOpenLot(event: DashboardEventRow) {
  * 维护 adjusted lots：
  * - BUY / STOCK_GRANT / STOCK_DIVIDEND / TRANSFER_IN 生成 lot
  * - SELL / TRANSFER_OUT 按 FIFO 扣减 lot
+ * - IBKR opening short SELL 进入 short lot，后续 BUY 优先平空
  * - SPLIT / REVERSE_SPLIT 调整所有未平仓 lot 的 quantity，cost basis 不变
  */
 export function calculatePositionCost(
@@ -185,12 +233,42 @@ export function calculatePositionCost(
         continue;
       }
 
-      if (event.eventType === 'TRADE_BUY') {
-        position.tradeCount += 1;
-      }
-
       const quantity = absDecimal(event.absQuantity ?? event.quantity);
       const cost = getOpenLotCost(event);
+
+      if (event.eventType === 'TRADE_BUY') {
+        position.tradeCount += 1;
+
+        if (position.shortQuantity.gt(0)) {
+          const coverQuantity = Decimal.min(quantity, position.shortQuantity);
+          const coverCost = proportionalAmount(cost, coverQuantity, quantity);
+          const shortProceeds = allocateShortProceeds(position, coverQuantity);
+          const realizedPnl = shortProceeds.minus(coverCost);
+          const remainingBuyQuantity = quantity.minus(coverQuantity);
+          const remainingBuyCost = cost.minus(coverCost);
+
+          position.shortQuantity = Decimal.max(
+            position.shortQuantity.minus(coverQuantity),
+            0,
+          );
+          position.realizedPnl = position.realizedPnl.plus(realizedPnl);
+          position.totalAllocatedCost =
+            position.totalAllocatedCost.plus(coverCost);
+
+          if (remainingBuyQuantity.gt(0)) {
+            position.lots.push({
+              quantity: remainingBuyQuantity,
+              cost: remainingBuyCost,
+              source: event.eventType,
+            });
+            position.remainingQuantity =
+              position.remainingQuantity.plus(remainingBuyQuantity);
+            position.remainingCost = position.remainingCost.plus(remainingBuyCost);
+          }
+
+          continue;
+        }
+      }
 
       if (
         event.eventType === 'TRANSFER_IN' &&
@@ -226,26 +304,48 @@ export function calculatePositionCost(
         conversionWarnings.add(warning),
       );
 
-      if (quantity.gt(position.remainingQuantity)) {
-        const closeLabel =
-          event.eventType === 'TRADE_SELL' ? 'sell' : 'transfer-out';
+      if (
+        event.eventType === 'TRANSFER_OUT' &&
+        quantity.gt(position.remainingQuantity)
+      ) {
         warnings.push(
-          `${symbol} ${closeLabel} quantity ${quantity.toString()} is greater than current lot quantity ${position.remainingQuantity.toString()}. Please review missing opening positions or corporate actions.`,
+          `${symbol} transfer-out quantity ${quantity.toString()} is greater than current lot quantity ${position.remainingQuantity.toString()}. Please review missing opening positions or corporate actions.`,
         );
       }
 
-      const allocatedCost = allocateFifoCost(position, quantity);
       const quantityForPosition = Decimal.min(quantity, position.remainingQuantity);
+      const allocatedCost = allocateFifoCost(position, quantityForPosition);
 
       if (event.eventType === 'TRADE_SELL') {
-        const realizedPnl = convertedNetAmount.amount.minus(allocatedCost);
-        position.realizedPnl = position.realizedPnl.plus(realizedPnl);
-        position.totalSellProceeds = position.totalSellProceeds.plus(
-          convertedNetAmount.amount,
+        const sellProceeds = convertedNetAmount.amount.abs();
+        const longSellProceeds = proportionalAmount(
+          sellProceeds,
+          quantityForPosition,
+          quantity,
         );
+        const realizedPnl = longSellProceeds.minus(allocatedCost);
+        const shortOpenQuantity = quantity.minus(quantityForPosition);
+        const shortOpenProceeds = proportionalAmount(
+          sellProceeds,
+          shortOpenQuantity,
+          quantity,
+        );
+
+        position.realizedPnl = position.realizedPnl.plus(realizedPnl);
+        position.totalSellProceeds =
+          position.totalSellProceeds.plus(longSellProceeds);
         position.totalAllocatedCost =
           position.totalAllocatedCost.plus(allocatedCost);
         position.soldQuantity = position.soldQuantity.plus(quantity);
+
+        if (shortOpenQuantity.gt(0)) {
+          position.shortLots.push({
+            quantity: shortOpenQuantity,
+            proceeds: shortOpenProceeds,
+          });
+          position.shortQuantity =
+            position.shortQuantity.plus(shortOpenQuantity);
+        }
       }
 
       position.remainingQuantity = Decimal.max(
@@ -289,6 +389,19 @@ export function calculatePositionCost(
     if (!lotQuantity.minus(position.remainingQuantity).abs().lte(0.000001)) {
       warnings.push(
         `${position.symbol} lot quantity ${lotQuantity.toString()} does not match remaining quantity ${position.remainingQuantity.toString()}.`,
+      );
+    }
+
+    const shortLotQuantity = sumShortQuantity(position.shortLots);
+    if (!shortLotQuantity.minus(position.shortQuantity).abs().lte(0.000001)) {
+      warnings.push(
+        `${position.symbol} short lot quantity ${shortLotQuantity.toString()} does not match remaining short quantity ${position.shortQuantity.toString()}.`,
+      );
+    }
+
+    if (position.shortQuantity.gt(0)) {
+      warnings.push(
+        `${position.symbol} has remaining short quantity ${position.shortQuantity.toString()}. Short market value is not included in the long-position dashboard yet.`,
       );
     }
   }

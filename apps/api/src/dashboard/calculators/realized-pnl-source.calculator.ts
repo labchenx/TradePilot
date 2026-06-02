@@ -39,7 +39,8 @@ export function findIbkrRealizedPnl(rawData: unknown) {
 /**
  * 已实现盈亏来源选择器。
  *
- * IBKR CSV 的卖出交易 rawData 里通常带有“已实现的损益”。
+ * IBKR CSV 的交易行 rawData 里通常带有“已实现的损益”。
+ * 普通多头平仓通常落在 SELL 行；做空回补会落在 BUY 行。
  * 这个值已经考虑了券商真实成本基础、佣金、公司行动和外汇因素，
  * 所以优先使用；只有缺失时才回退到我们自己的 FIFO 结果。
  */
@@ -52,7 +53,7 @@ export function calculateRealizedPnlSource(
   let dbValueCount = 0;
 
   for (const event of events) {
-    if (event.eventType !== 'TRADE_SELL' || !event.symbol) {
+    if (!event.isTrade || !event.symbol) {
       continue;
     }
 

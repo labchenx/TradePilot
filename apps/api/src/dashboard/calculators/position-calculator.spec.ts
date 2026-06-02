@@ -38,6 +38,74 @@ function createEvent(
 }
 
 describe('calculatePositionCost', () => {
+  it('tracks opening short sells separately from long lots', () => {
+    const result = calculatePositionCost([
+      createEvent({
+        rawRowIndex: 1,
+        eventType: 'TRADE_SELL',
+        symbol: 'ORCL',
+        quantity: new Prisma.Decimal(-10),
+        absQuantity: new Prisma.Decimal(10),
+        netAmount: new Prisma.Decimal(3330),
+        side: 'SELL',
+        isTrade: true,
+      }),
+      createEvent({
+        rawRowIndex: 2,
+        eventType: 'TRADE_BUY',
+        symbol: 'ORCL',
+        quantity: new Prisma.Decimal(10),
+        absQuantity: new Prisma.Decimal(10),
+        netAmount: new Prisma.Decimal(-3347.7),
+        side: 'BUY',
+        isTrade: true,
+      }),
+    ]);
+
+    const orcl = result.positions.find((position) => position.symbol === 'ORCL');
+
+    expect(orcl?.remainingQuantity.toNumber()).toBe(0);
+    expect(orcl?.realizedPnl.toNumber()).toBeCloseTo(-17.7, 6);
+    expect(
+      result.warnings.some((warning) =>
+        warning.includes('ORCL sell quantity 10'),
+      ),
+    ).toBe(false);
+  });
+
+  it('reduces long lots for transfer-out without recording a sale', () => {
+    const result = calculatePositionCost([
+      createEvent({
+        rawRowIndex: 1,
+        eventType: 'TRADE_BUY',
+        symbol: 'ORCL',
+        quantity: new Prisma.Decimal(4),
+        absQuantity: new Prisma.Decimal(4),
+        netAmount: new Prisma.Decimal(-1100.6),
+        side: 'BUY',
+        isTrade: true,
+      }),
+      createEvent({
+        rawRowIndex: 2,
+        eventType: 'TRANSFER_OUT',
+        symbol: 'ORCL',
+        quantity: new Prisma.Decimal(-4),
+        absQuantity: new Prisma.Decimal(4),
+        grossAmount: new Prisma.Decimal(-1100.6),
+      }),
+    ]);
+
+    const orcl = result.positions.find((position) => position.symbol === 'ORCL');
+
+    expect(orcl?.remainingQuantity.toNumber()).toBe(0);
+    expect(orcl?.realizedPnl.toNumber()).toBe(0);
+    expect(
+      result.warnings.some((warning) =>
+        warning.includes('ORCL transfer-out quantity 4'),
+      ),
+    ).toBe(false);
+  });
+
   it('does not count vested IBKR stock grant rows twice', () => {
     const result = calculatePositionCost([
       createEvent({

@@ -22,6 +22,7 @@ const INTEREST_SECTION = '利息';
 const FEES_SECTION = '费用';
 const CORPORATE_ACTIONS_SECTION = '公司行动';
 const STOCK_GRANT_SECTION = '股票赠与活动';
+const TRANSFERS_SECTION = '转账';
 
 const REQUIRED_TRANSACTION_HISTORY_FIELDS = [
   '日期',
@@ -319,6 +320,49 @@ function createStockGrantEvent(
     grossAmount: parseAmount(rawData['价值']),
     commission: 0,
     netAmount: 0,
+    side: undefined,
+    isTrade: false,
+    isExternalCashFlow: false,
+    isIncome: false,
+    isTaxOrFee: false,
+  };
+}
+
+function createTransferEvent(
+  rawData: Record<string, string>,
+  rawRowIndex: number,
+  accountId: string,
+): TransactionEvent {
+  const quantity = parseOptionalNumber(rawData['数量']);
+  const direction = rawData['方向'] ?? '';
+  const eventType: IbkrEventType =
+    direction === '入' || (typeof quantity === 'number' && quantity > 0)
+      ? 'TRANSFER_IN'
+      : 'TRANSFER_OUT';
+  const transferType = rawData['类型'] ?? eventType;
+  const symbol = normalizeOptionalText(rawData['代码']);
+  const marketValue = parseAmount(rawData['市场价值']);
+
+  return {
+    source: 'IBKR_CSV',
+    sourceSection: TRANSFERS_SECTION,
+    rawRowIndex,
+    rawData,
+    tradeDate: rawData['日期'] ?? '',
+    accountId,
+    description: `${transferType} ${direction} ${symbol ?? ''}`.trim(),
+    ibkrType: eventType,
+    eventType,
+    symbol,
+    quantity,
+    absQuantity:
+      typeof quantity === 'number' ? Math.abs(quantity) : undefined,
+    price: parseOptionalNumber(rawData['转账价格']),
+    currency: normalizeOptionalText(rawData['货币']),
+    // 转入时可作为成本基础；转出只用于审计，不进入现金流水。
+    grossAmount: marketValue,
+    commission: 0,
+    netAmount: parseAmount(rawData['现金金额']),
     side: undefined,
     isTrade: false,
     isExternalCashFlow: false,
@@ -707,6 +751,16 @@ function parseActivityStatementRows(
 
       const rawData = buildRawData(headers, row.slice(2));
       parsedEvents.push(createStockGrantEvent(rawData, rawRowIndex, accountId));
+      return;
+    }
+
+    if (section === TRANSFERS_SECTION) {
+      if (row[2]?.startsWith('总数')) {
+        return;
+      }
+
+      const rawData = buildRawData(headers, row.slice(2));
+      parsedEvents.push(createTransferEvent(rawData, rawRowIndex, accountId));
     }
   });
 
