@@ -7,6 +7,7 @@ import { PortfolioCashFlowsService } from './portfolio-cash-flows.service';
 import { PortfolioClearDataService } from './portfolio-clear-data.service';
 import { PortfolioController } from './portfolio.controller';
 import { PortfolioPositionsService } from './portfolio-positions.service';
+import { PortfolioStockDetailService } from './portfolio-stock-detail.service';
 import { PortfolioTradingBehaviorService } from './portfolio-trading-behavior.service';
 import { PortfolioTransactionsService } from './portfolio-transactions.service';
 
@@ -20,6 +21,7 @@ import { PortfolioTransactionsService } from './portfolio-transactions.service';
     PortfolioCashFlowsService,
     PortfolioClearDataService,
     PortfolioPositionsService,
+    PortfolioStockDetailService,
     PortfolioTradingBehaviorService,
     PortfolioTransactionsService,
   ],
@@ -30,6 +32,7 @@ import { PortfolioTransactionsService } from './portfolio-transactions.service';
     PortfolioCashFlowsService,
     PortfolioClearDataService,
     PortfolioPositionsService,
+    PortfolioStockDetailService,
     PortfolioTradingBehaviorService,
     PortfolioTransactionsService,
   ],

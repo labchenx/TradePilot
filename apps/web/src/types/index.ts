@@ -7,5 +7,5 @@ export * from './navigation';
 export * from './news';
 export * from './performance';
 export * from './settings';
+export * from './stockDetail';
 export * from './transaction';
-

@@ -10,4 +10,5 @@ export * from './newsService';
 export * from './performanceService';
 export * from './portfolioMaintenanceService';
 export * from './settingsService';
+export * from './stockDetailService';
 export * from './transactionService';

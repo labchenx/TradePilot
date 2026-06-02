@@ -74,6 +74,7 @@ describe('PortfolioTransactionsService', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           isTrade: true,
+          isExternalCashFlow: false,
           symbol: { not: null },
         }),
       }),
@@ -93,6 +94,40 @@ describe('PortfolioTransactionsService', () => {
       commission: 2,
       realizedPnl: 96.5,
       tradedSymbolCount: 1,
+    });
+  });
+
+  it('excludes external cash flow rows even if imported flags are malformed', async () => {
+    const rows = [
+      tradeEvent({ id: 'buy-1' }),
+      tradeEvent({
+        id: 'bad-deposit',
+        eventType: 'DEPOSIT',
+        symbol: 'USD',
+        side: 'BUY',
+        quantity: null,
+        absQuantity: null,
+        price: null,
+        netAmount: new Prisma.Decimal(10000),
+        isTrade: true,
+        isExternalCashFlow: true,
+      }),
+    ];
+    const prisma = {
+      transactionEvent: {
+        findMany: jest.fn().mockResolvedValue(rows),
+      },
+    };
+    const service = new PortfolioTransactionsService(prisma as never);
+
+    const result = await service.getTransactions({ page: 1, pageSize: 50 });
+
+    expect(result.transactions).toHaveLength(1);
+    expect(result.transactions[0].id).toBe('buy-1');
+    expect(result.summary).toMatchObject({
+      totalTrades: 1,
+      buyAmount: 1001,
+      sellAmount: 0,
     });
   });
 

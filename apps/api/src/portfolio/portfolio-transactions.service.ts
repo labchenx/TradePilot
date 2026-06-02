@@ -259,6 +259,8 @@ function isStockTradeEvent(
 ): event is DashboardEventRow & { symbol: string; side: 'BUY' | 'SELL' } {
   return (
     event.isTrade &&
+    !event.isExternalCashFlow &&
+    (event.eventType === 'TRADE_BUY' || event.eventType === 'TRADE_SELL') &&
     typeof event.symbol === 'string' &&
     event.symbol.length > 0 &&
     (event.side === 'BUY' || event.side === 'SELL')
@@ -277,6 +279,7 @@ export class PortfolioTransactionsService {
     const where: Prisma.TransactionEventWhereInput = {
       userId: filters.userId ?? DEFAULT_USER_ID,
       isTrade: true,
+      isExternalCashFlow: false,
       side: filters.side
         ? filters.side
         : {

@@ -4,6 +4,7 @@ export * from './useHoldings';
 export * from './useMaintenanceActions';
 export * from './usePerformance';
 export * from './useSettings';
+export * from './useStockDetail';
 export * from './useSymbolMappings';
 export * from './useSystemStatus';
 export * from './useTradingBehavior';

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { CurrentUserParam } from '../auth/current-user.decorator';
 import { CurrentUser } from '../auth/auth.types';
 import { AssetTrendRange } from '../dashboard/dto/asset-trend.dto';
@@ -10,6 +10,7 @@ import { PortfolioAnalyticsService } from './portfolio-analytics.service';
 import { PortfolioCashFlowsService } from './portfolio-cash-flows.service';
 import { PortfolioClearDataService } from './portfolio-clear-data.service';
 import { PortfolioPositionsService } from './portfolio-positions.service';
+import { PortfolioStockDetailService } from './portfolio-stock-detail.service';
 import { PortfolioTradingBehaviorService } from './portfolio-trading-behavior.service';
 import { PortfolioTransactionsService } from './portfolio-transactions.service';
 
@@ -27,6 +28,7 @@ export class PortfolioController {
     private readonly portfolioTransactionsService: PortfolioTransactionsService,
     private readonly portfolioCashFlowsService: PortfolioCashFlowsService,
     private readonly portfolioAnalyticsService: PortfolioAnalyticsService,
+    private readonly portfolioStockDetailService: PortfolioStockDetailService,
     private readonly portfolioTradingBehaviorService: PortfolioTradingBehaviorService,
     private readonly portfolioClearDataService: PortfolioClearDataService,
   ) {}
@@ -60,6 +62,19 @@ export class PortfolioController {
     @Query() query: GetTradingBehaviorDto,
   ) {
     return this.portfolioTradingBehaviorService.getTradingBehavior(user.id, query);
+  }
+
+  @Get('stocks/:symbol')
+  getStockDetail(
+    @CurrentUserParam() user: CurrentUser,
+    @Param('symbol') symbol: string,
+    @Query('range') range?: string,
+  ) {
+    return this.portfolioStockDetailService.getStockDetail(
+      user.id,
+      symbol,
+      range,
+    );
   }
 
   @Get('monthly-trend')
