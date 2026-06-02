@@ -5,14 +5,14 @@ import { MonthlyTrendService } from './monthly-trend.service';
 import { PortfolioAnalyticsService } from './portfolio-analytics.service';
 import { PortfolioCashFlowsService } from './portfolio-cash-flows.service';
 import { PortfolioClearDataService } from './portfolio-clear-data.service';
-import { PortfolioApiController, PortfolioController } from './portfolio.controller';
+import { PortfolioController } from './portfolio.controller';
 import { PortfolioPositionsService } from './portfolio-positions.service';
 import { PortfolioTradingBehaviorService } from './portfolio-trading-behavior.service';
 import { PortfolioTransactionsService } from './portfolio-transactions.service';
 
 @Module({
   imports: [MarketDataModule],
-  controllers: [PortfolioController, PortfolioApiController],
+  controllers: [PortfolioController],
   providers: [
     MonthlySnapshotService,
     MonthlyTrendService,

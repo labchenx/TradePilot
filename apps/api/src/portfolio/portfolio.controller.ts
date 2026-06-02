@@ -18,7 +18,7 @@ interface RegenerateMonthlySnapshotsBody {
   startMonth?: string;
 }
 
-@Controller('portfolio')
+@Controller(['portfolio', 'api/portfolio'])
 export class PortfolioController {
   constructor(
     private readonly monthlyTrendService: MonthlyTrendService,
@@ -123,70 +123,5 @@ export class PortfolioController {
     @Body() body: { confirmation?: string },
   ) {
     return this.portfolioClearDataService.clearCurrentUserData(user.id, body);
-  }
-}
-
-@Controller('api/portfolio')
-export class PortfolioApiController {
-  constructor(
-    private readonly monthlySnapshotService: MonthlySnapshotService,
-    private readonly portfolioPositionsService: PortfolioPositionsService,
-    private readonly portfolioAnalyticsService: PortfolioAnalyticsService,
-    private readonly portfolioTradingBehaviorService: PortfolioTradingBehaviorService,
-    private readonly portfolioClearDataService: PortfolioClearDataService,
-  ) {}
-
-  @Get('trading-behavior')
-  getTradingBehavior(
-    @CurrentUserParam() user: CurrentUser,
-    @Query() query: GetTradingBehaviorDto,
-  ) {
-    return this.portfolioTradingBehaviorService.getTradingBehavior(user.id, query);
-  }
-
-  @Post('clear-data')
-  clearData(
-    @CurrentUserParam() user: CurrentUser,
-    @Body() body: { confirmation?: string },
-  ) {
-    return this.portfolioClearDataService.clearCurrentUserData(user.id, body);
-  }
-
-  @Post('recalculate-positions')
-  async recalculatePositions(@CurrentUserParam() user: CurrentUser) {
-    const data = await this.portfolioPositionsService.getPositions(user.id);
-    return {
-      success: true,
-      positionsCount: data.holdings.length,
-      warnings: data.warnings,
-      runAt: new Date().toISOString(),
-    };
-  }
-
-  @Post('regenerate-monthly-snapshots')
-  regenerateMonthlySnapshots(
-    @CurrentUserParam() user: CurrentUser,
-    @Body() body: RegenerateMonthlySnapshotsBody,
-  ) {
-    if (body.startMonth) {
-      return this.monthlySnapshotService.regenerateSnapshotsFromMonth(
-        user.id,
-        body.accountId,
-        body.startMonth,
-      );
-    }
-
-    return this.monthlySnapshotService.generateMonthlySnapshots(user.id, body.accountId);
-  }
-
-  @Post('recalculate-metrics')
-  async recalculateMetrics(@CurrentUserParam() user: CurrentUser) {
-    const data = await this.portfolioAnalyticsService.getAnalytics(user.id);
-    return {
-      success: true,
-      summary: data.summary,
-      warnings: data.warnings,
-      runAt: new Date().toISOString(),
-    };
   }
 }

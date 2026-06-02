@@ -95,11 +95,63 @@ describe('QuoteService', () => {
     });
   });
 
-  it('falls back to the latest cached quote when EastMoney has no usable price', async () => {
+  it('uses live BRK_B quotes for all supported Berkshire B symbol variants', async () => {
+    const getQuotes = jest
+      .fn<ReturnType<EastMoneyProvider['getQuotes']>, Parameters<EastMoneyProvider['getQuotes']>>()
+      .mockResolvedValue({
+        '106:BRK_B': {
+          symbol: 'BRK_B',
+          latestPrice: 470.75,
+          currency: 'USD',
+          name: 'Berkshire Hathaway B',
+          market: 106,
+          rawData: { source: 'TENCENT_QUOTE' },
+        },
+      });
+    const eastMoneyProvider = createEastMoneyProviderMock(getQuotes);
+    const quoteCache = createQuoteCacheMock();
+    const service = new QuoteService(eastMoneyProvider, quoteCache);
+
+    const result = await service.getCurrentQuotes(['BRK B', 'BRKB', 'BRK.B', 'BRK-B']);
+
+    expect(getQuotes).toHaveBeenCalledWith([
+      expect.objectContaining({
+        providerSymbol: 'BRK_B',
+        providerKey: '106:BRK_B',
+      }),
+    ]);
+    for (const symbol of ['BRK B', 'BRKB', 'BRK.B', 'BRK-B']) {
+      expect(result.quotesBySymbol.get(symbol)).toMatchObject({
+        symbol,
+        providerSymbol: '106:BRK_B',
+        source: 'LIVE',
+        currency: 'USD',
+      });
+      expect(result.quotesBySymbol.get(symbol)?.price.toNumber()).toBe(470.75);
+    }
+    expect(quoteCache.saveSnapshots).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          quote: expect.objectContaining({
+            symbol: 'BRK B',
+            providerSymbol: '106:BRK_B',
+            source: 'LIVE',
+          }),
+          rawData: expect.objectContaining({
+            rawData: expect.objectContaining({ source: 'TENCENT_QUOTE' }),
+          }),
+        }),
+      ]),
+    );
+    expect(quoteCache.getLatestQuotes).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the latest cached quote when live data has no usable price', async () => {
     const cachedAt = new Date('2026-05-15T12:00:00.000Z');
     const eastMoneyProvider = createEastMoneyProviderMock(async () => ({
       '105:NVDA': {
         symbol: 'NVDA',
+        latestPrice: 0,
         currency: 'USD',
       },
     }));

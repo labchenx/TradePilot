@@ -22,6 +22,15 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue | undefined {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
+function toPositiveDecimal(value: unknown): Decimal | null {
+  try {
+    const decimal = new Decimal(value as Decimal.Value);
+    return decimal.isFinite() && decimal.gt(0) ? decimal : null;
+  } catch {
+    return null;
+  }
+}
+
 @Injectable()
 export class QuoteCacheService {
   constructor(private readonly prisma: PrismaService) {}
@@ -68,22 +77,29 @@ export class QuoteCacheService {
 
     await Promise.all(
       symbols.map(async ({ symbol, providerSymbol }) => {
-        const snapshot =
-          (await this.prisma.marketQuoteSnapshot.findFirst({
-            where: { symbol, provider: 'EASTMONEY' },
-            orderBy: { fetchedAt: 'desc' },
-          })) ??
-          (await this.prisma.marketQuoteSnapshot.findFirst({
-            where: { symbol },
-            orderBy: { fetchedAt: 'desc' },
-          }));
+        const providerSnapshot = await this.prisma.marketQuoteSnapshot.findFirst({
+          where: { symbol, provider: 'EASTMONEY' },
+          orderBy: { fetchedAt: 'desc' },
+        });
+        const providerSnapshotPrice = providerSnapshot
+          ? toPositiveDecimal(providerSnapshot.price)
+          : null;
+        const snapshot = providerSnapshotPrice
+          ? providerSnapshot
+          : await this.prisma.marketQuoteSnapshot.findFirst({
+              where: { symbol },
+              orderBy: { fetchedAt: 'desc' },
+            });
+        const snapshotPrice =
+          providerSnapshotPrice ??
+          (snapshot ? toPositiveDecimal(snapshot.price) : null);
 
-        if (snapshot) {
+        if (snapshot && snapshotPrice) {
           result.set(symbol, {
             symbol,
             providerSymbol: snapshot.providerSymbol || providerSymbol,
             name: snapshot.name ?? undefined,
-            price: new Decimal(snapshot.price),
+            price: snapshotPrice,
             currency: snapshot.currency,
             provider: 'EASTMONEY',
             source: 'CACHE',
@@ -103,11 +119,13 @@ export class QuoteCacheService {
           }));
 
         if (!history) return;
+        const price = toPositiveDecimal(history.adjustedClose ?? history.close);
+        if (!price) return;
 
         result.set(symbol, {
           symbol,
           providerSymbol: history.providerSymbol || providerSymbol,
-          price: new Decimal(history.adjustedClose ?? history.close),
+          price,
           currency: history.currency,
           provider: 'EASTMONEY',
           source: 'CACHE',

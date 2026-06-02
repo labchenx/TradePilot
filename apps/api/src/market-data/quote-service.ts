@@ -87,7 +87,12 @@ export class QuoteService {
       const price = quote?.latestPrice;
       const currency = quote?.currency;
 
-      if (typeof price !== 'number' || !Number.isFinite(price) || !currency) {
+      if (
+        typeof price !== 'number' ||
+        !Number.isFinite(price) ||
+        price <= 0 ||
+        !currency
+      ) {
         missingQuoteInputs.push({
           symbol,
           providerSymbol: formatProviderSymbol(providerSymbol),

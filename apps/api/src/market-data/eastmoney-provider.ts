@@ -134,7 +134,7 @@ function parseSinaQuoteLine(line: string): {
     price = parseFloat(fields[3]);
   }
 
-  if (!Number.isFinite(price)) return null;
+  if (!Number.isFinite(price) || price <= 0) return null;
   return { name, price };
 }
 
@@ -171,6 +171,24 @@ interface TencentKlinePayload {
       qfqday?: TencentKlineRow[];
     }
   >;
+}
+
+function parseTencentQuoteLine(line: string): {
+  name: string;
+  price: number;
+  currency: string;
+} | null {
+  const fields = line.match(/"([^"]*)"/)?.[1]?.split('~') ?? [];
+  if (fields.length < 4) return null;
+
+  const price = parseFloat(fields[3]);
+  if (!Number.isFinite(price) || price <= 0) return null;
+
+  return {
+    name: fields[1],
+    price,
+    currency: fields.find((field) => /^[A-Z]{3}$/.test(field)) ?? 'USD',
+  };
 }
 
 @Injectable()
@@ -264,8 +282,16 @@ export class EastMoneyProvider {
       }
     }
 
+    const missingUsSymbols = unique.filter(
+      (symbol) => isUsMarket(symbol.market) && !result[symbol.providerKey],
+    );
+    if (missingUsSymbols.length > 0) {
+      const tencentQuotes = await this.getTencentUsQuotes(missingUsSymbols);
+      Object.assign(result, tencentQuotes);
+    }
+
     this.logger.log(
-      `Sina quotes: ${Object.keys(result).length}/${unique.length} symbols resolved`,
+      `Market quotes: ${Object.keys(result).length}/${unique.length} symbols resolved`,
     );
     return result;
   }
@@ -351,6 +377,72 @@ export class EastMoneyProvider {
     }
 
     return [];
+  }
+
+  private async getTencentUsQuotes(
+    symbols: EastMoneyProviderSymbol[],
+  ): Promise<EastMoneyQuoteResponseObject> {
+    const result: EastMoneyQuoteResponseObject = {};
+
+    for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+      const batch = symbols.slice(i, i + BATCH_SIZE);
+      const candidates = batch.map((symbol) => ({
+        symbol,
+        tencent: toTencentUsSymbolBase(symbol.providerSymbol),
+      }));
+      const url = `${TENCENT_US_QUOTE_URL}${candidates
+        .map((candidate) => candidate.tencent)
+        .join(',')}`;
+
+      try {
+        const response = await fetch(url, {
+          headers: {
+            Referer: 'https://gu.qq.com/',
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+        });
+
+        if (!response.ok) {
+          this.logger.warn(`Tencent US quote request failed: HTTP ${response.status}`);
+          continue;
+        }
+
+        const text = await response.text();
+        const lines = text.split('\n').filter((line) => line.startsWith('v_'));
+        const lineByTencent = new Map<string, string>();
+
+        for (const line of lines) {
+          const match = line.match(/^v_([^=]+)=/);
+          if (match) lineByTencent.set(match[1], line);
+        }
+
+        for (const { symbol, tencent } of candidates) {
+          const line = lineByTencent.get(tencent);
+          if (!line) continue;
+
+          const parsed = parseTencentQuoteLine(line);
+          if (!parsed) continue;
+
+          result[symbol.providerKey] = {
+            symbol: symbol.providerSymbol,
+            latestPrice: parsed.price,
+            currency: parsed.currency,
+            name: parsed.name,
+            market: symbol.market,
+            rawData: {
+              source: 'TENCENT_QUOTE',
+              line,
+            },
+          };
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Tencent US quote batch failed: ${msg}`);
+      }
+    }
+
+    return result;
   }
 
   private async getTencentUsDailyPrices(

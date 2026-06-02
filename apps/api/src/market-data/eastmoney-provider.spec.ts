@@ -22,6 +22,91 @@ describe('EastMoneyProvider Sina/Tencent adapters', () => {
     jest.restoreAllMocks();
   });
 
+  it('falls back to Tencent US quotes when Sina has no usable BRK_B quote data', async () => {
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(
+        mockTextResponse(
+          'var hq_str_gb_brk_b="";\nvar hq_str_gb_brk.b="";\nvar hq_str_gb_brkb="BRKB,0.0000,0.00,2019-09-24 09:30:43";',
+        ),
+      )
+      .mockResolvedValueOnce(
+        mockTextResponse(
+          'v_usBRK.B="200~Berkshire Hathaway B~BRK.B.N~470.75~474.48~473.05~1439453~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~0~~2026-06-01 11:08:00~-3.73~-0.79~473.29~470.34~USD";',
+        ),
+      );
+    const provider = new EastMoneyProvider();
+
+    const quotes = await provider.getQuotes([
+      {
+        providerSymbol: 'BRK_B',
+        market: EastMoneyMarket.US_NYSE,
+        providerKey: '106:BRK_B',
+      },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain('q=usBRK.B');
+    expect(quotes['106:BRK_B']).toMatchObject({
+      symbol: 'BRK_B',
+      latestPrice: 470.75,
+      currency: 'USD',
+      name: 'Berkshire Hathaway B',
+      market: EastMoneyMarket.US_NYSE,
+      rawData: expect.objectContaining({ source: 'TENCENT_QUOTE' }),
+    });
+  });
+
+  it('does not create a quote when Tencent US quote data is invalid', async () => {
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(mockTextResponse('var hq_str_gb_brk_b="";'))
+      .mockResolvedValueOnce(
+        mockTextResponse(
+          'v_usBRK.B="200~Berkshire Hathaway B~BRK.B.N~0.00~474.48~473.05~USD";',
+        ),
+      );
+    const provider = new EastMoneyProvider();
+
+    const quotes = await provider.getQuotes([
+      {
+        providerSymbol: 'BRK_B',
+        market: EastMoneyMarket.US_NYSE,
+        providerKey: '106:BRK_B',
+      },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(quotes).toEqual({});
+  });
+
+  it('does not request Tencent when Sina resolves a US quote', async () => {
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(
+        mockTextResponse(
+          'var hq_str_gb_aapl="Apple Inc,210.50,1.10,0.53,2026-06-01 16:00:00";',
+        ),
+      );
+    const provider = new EastMoneyProvider();
+
+    const quotes = await provider.getQuotes([
+      {
+        providerSymbol: 'AAPL',
+        market: EastMoneyMarket.US,
+        providerKey: '105:AAPL',
+      },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(quotes['105:AAPL']).toMatchObject({
+      symbol: 'AAPL',
+      latestPrice: 210.5,
+      currency: 'USD',
+      name: 'Apple Inc',
+    });
+  });
+
   it('loads US daily history from Tencent when Sina has no usable US K-line rows', async () => {
     const fetchMock = jest
       .spyOn(global, 'fetch')
