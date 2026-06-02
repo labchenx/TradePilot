@@ -2,10 +2,26 @@ import { EastMoneyProvider } from './eastmoney-provider';
 import { EastMoneyMarket } from './symbol-normalizer';
 
 function mockTextResponse(text: string): Response {
+  const buffer = Buffer.from(text, 'utf8');
+
+  return mockBufferResponse(buffer, 'text/plain; charset=UTF-8');
+}
+
+function mockBufferResponse(buffer: Buffer, contentType: string): Response {
+  const arrayBuffer = buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength,
+  );
+
   return {
     ok: true,
     status: 200,
-    text: jest.fn(async () => text),
+    headers: {
+      get: jest.fn((key: string) =>
+        key.toLowerCase() === 'content-type' ? contentType : null,
+      ),
+    },
+    arrayBuffer: jest.fn(async () => arrayBuffer),
   } as unknown as Response;
 }
 
@@ -104,6 +120,38 @@ describe('EastMoneyProvider Sina/Tencent adapters', () => {
       latestPrice: 210.5,
       currency: 'USD',
       name: 'Apple Inc',
+    });
+  });
+
+  it('decodes GB18030 Sina quote names before saving the quote', async () => {
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(
+        mockBufferResponse(
+          Buffer.concat([
+            Buffer.from('var hq_str_gb_msft="', 'ascii'),
+            Buffer.from([0xce, 0xa2, 0xc8, 0xed]), // 微软 in GB18030/GBK
+            Buffer.from(',460.52,2.28,2026-06-02 09:48:35";', 'ascii'),
+          ]),
+          'application/javascript; charset=GB18030',
+        ),
+      );
+    const provider = new EastMoneyProvider();
+
+    const quotes = await provider.getQuotes([
+      {
+        providerSymbol: 'MSFT',
+        market: EastMoneyMarket.US,
+        providerKey: '105:MSFT',
+      },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(quotes['105:MSFT']).toMatchObject({
+      symbol: 'MSFT',
+      latestPrice: 460.52,
+      currency: 'USD',
+      name: '微软',
     });
   });
 

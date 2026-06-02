@@ -40,9 +40,22 @@ const TENCENT_US_KLINE_URL =
   'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';
 const TENCENT_US_QUOTE_URL = 'https://qt.gtimg.cn/q=';
 const TENCENT_US_MARKET_SUFFIXES = ['N', 'OQ', 'AM'] as const;
+const GB18030_DECODER = new TextDecoder('gb18030');
 
 /** 每批最多请求的股票数，避免 URL 过长 */
 const BATCH_SIZE = 20;
+
+async function decodeHttpText(response: Response, fallbackEncoding = 'utf-8') {
+  const contentType = response.headers.get('content-type') ?? '';
+  const encoding = /charset\s*=\s*([^;\s]+)/i.exec(contentType)?.[1] ?? fallbackEncoding;
+  const bytes = await response.arrayBuffer();
+
+  if (/^(gb18030|gbk|gb2312)$/i.test(encoding)) {
+    return GB18030_DECODER.decode(bytes);
+  }
+
+  return new TextDecoder('utf-8').decode(bytes);
+}
 
 /**
  * 将 EastMoney 市场码映射为新浪符号，支持多个候选格式。
@@ -243,7 +256,7 @@ export class EastMoneyProvider {
           continue;
         }
 
-        const text = await response.text();
+        const text = await decodeHttpText(response, 'gb18030');
         const lines = text.split('\n').filter((l) => l.startsWith('var hq_str_'));
 
         // 构建 sina symbol → line 的映射
@@ -408,7 +421,7 @@ export class EastMoneyProvider {
           continue;
         }
 
-        const text = await response.text();
+        const text = await decodeHttpText(response, 'gb18030');
         const lines = text.split('\n').filter((line) => line.startsWith('v_'));
         const lineByTencent = new Map<string, string>();
 
@@ -472,7 +485,7 @@ export class EastMoneyProvider {
           continue;
         }
 
-        const payload = parseTencentKlinePayload(await response.text());
+        const payload = parseTencentKlinePayload(await decodeHttpText(response));
         const rows =
           payload.data?.[tencentSymbol]?.qfqday ??
           payload.data?.[tencentSymbol]?.day ??
@@ -548,7 +561,7 @@ export class EastMoneyProvider {
       });
       if (!response.ok) return null;
 
-      const text = await response.text();
+      const text = await decodeHttpText(response, 'gb18030');
       const fields = text.match(/"([^"]*)"/)?.[1]?.split('~') ?? [];
       const marketCode = fields[2];
       return marketCode ? `us${marketCode}` : null;
