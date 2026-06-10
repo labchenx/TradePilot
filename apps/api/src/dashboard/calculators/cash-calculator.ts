@@ -76,6 +76,19 @@ function findLatestCashReport(importFiles: DashboardImportFileRow[]) {
     );
 }
 
+function isManualCashAdjustmentEvent(event: DashboardEventRow) {
+  const rawData = event.rawData;
+  if (typeof rawData !== 'object' || rawData === null || Array.isArray(rawData)) {
+    return false;
+  }
+
+  const data = rawData as Record<string, unknown>;
+  return (
+    data.source === 'MANUAL_GAP_FILL' &&
+    data.cashAdjustmentMode !== 'POSITION_ONLY'
+  );
+}
+
 function calculateEventCashFallback(events: DashboardEventRow[]) {
   const warnings = new Set<string>();
   const result = {
@@ -241,8 +254,9 @@ export function calculateCashMetrics(
     ? calculateEventCashFallback(
         events.filter(
           (event) =>
-            event.tradeDate.getTime() >
-            latestCashReportEntry.effectiveDate.getTime(),
+            (event.tradeDate.getTime() >
+              latestCashReportEntry.effectiveDate.getTime()) ||
+            isManualCashAdjustmentEvent(event),
         ),
       )
     : null;

@@ -5,6 +5,7 @@ import {
   ImportPreviewRecord,
   NormalizedImportRecordData,
 } from './import-preview.types';
+import { createCrossSourceTradeFingerprint } from './trade-identity';
 
 function hasUpdatableFields(data: NormalizedImportRecordData) {
   return (
@@ -65,6 +66,7 @@ export class ImportDedupService {
         .map((event) => [event.sourceEventHash as string, event.id]),
     );
     const seenInCurrentPreview = new Map<string, string>();
+    const seenTradeFingerprints = new Map<string, string>();
 
     for (const record of records) {
       if (record.status === 'ERROR' || !record.sourceHash) {
@@ -86,6 +88,28 @@ export class ImportDedupService {
       }
       seenInCurrentPreview.set(record.sourceHash, record.tempId);
 
+      const tradeFingerprint = createCrossSourceTradeFingerprint(record.data);
+      if (tradeFingerprint) {
+        const firstTempId = seenTradeFingerprints.get(tradeFingerprint);
+        if (firstTempId) {
+          record.status = 'DUPLICATE';
+          record.errorMessage = `Duplicate trade inside this preview; first record is ${firstTempId}.`;
+          continue;
+        }
+        seenTradeFingerprints.set(tradeFingerprint, record.tempId);
+
+        const crossSourceDuplicate = await this.findCrossSourceDuplicateCandidate(
+          userId,
+          record.data,
+          tradeFingerprint,
+        );
+        if (crossSourceDuplicate) {
+          record.status = 'DUPLICATE';
+          record.data.existingEventId = crossSourceDuplicate.id;
+          continue;
+        }
+      }
+
       if (duplicateStrategy === DuplicateStrategy.UPDATE_EMPTY_FIELDS) {
         const updateTarget = await this.findUpdateCandidate(userId, record.data);
         if (updateTarget) {
@@ -96,6 +120,40 @@ export class ImportDedupService {
     }
 
     return records;
+  }
+
+  private async findCrossSourceDuplicateCandidate(
+    userId: string,
+    data: NormalizedImportRecordData,
+    fingerprint: string,
+  ) {
+    if (!data.isTrade || !data.symbol || !data.side || data.absQuantity === undefined) {
+      return null;
+    }
+
+    const candidates = await this.prisma.transactionEvent.findMany({
+      where: {
+        userId,
+        isTrade: true,
+        tradeDate: new Date(`${data.tradeDate}T00:00:00.000Z`),
+        eventType: data.eventType,
+        symbol: data.symbol,
+        side: data.side,
+        absQuantity: new Prisma.Decimal(data.absQuantity),
+        price:
+          typeof data.price === 'number'
+            ? new Prisma.Decimal(data.price)
+            : null,
+        currency: data.currency ?? null,
+      },
+      take: 20,
+    });
+
+    return (
+      candidates.find(
+        (candidate) => createCrossSourceTradeFingerprint(candidate) === fingerprint,
+      ) ?? null
+    );
   }
 
   private async findUpdateCandidate(userId: string, data: NormalizedImportRecordData) {

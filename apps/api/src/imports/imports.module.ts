@@ -10,6 +10,6 @@ import { ImportsService } from './imports.service';
   imports: [PortfolioModule, MarketDataModule],
   controllers: [ImportsController],
   providers: [ImportConfirmService, ImportDedupService, ImportsService],
-  exports: [ImportsService],
+  exports: [ImportConfirmService, ImportsService],
 })
 export class ImportsModule {}

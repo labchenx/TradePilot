@@ -1,3 +1,4 @@
+import { createCrossSourceTradeFingerprint } from '../../imports/trade-identity';
 import { DashboardEventRow } from './dashboard-calculator.types';
 
 export interface DeduplicateDashboardEventsResult {
@@ -5,42 +6,35 @@ export interface DeduplicateDashboardEventsResult {
   warnings: string[];
 }
 
-function decimalKey(value: { toString(): string } | null | undefined) {
-  return value?.toString() ?? '';
+function sourcePriority(event: DashboardEventRow) {
+  const rawData = event.rawData as Record<string, unknown>;
+  if (rawData?.source === 'MANUAL_GAP_FILL') return 0;
+  if (event.source === 'IBKR_EMAIL_PDF') return 1;
+  if (event.source === 'IBKR_CSV') return 2;
+  return 1;
 }
 
-function createTradeFingerprint(event: DashboardEventRow) {
-  return [
-    event.accountId,
-    event.tradeDate.toISOString().slice(0, 10),
-    event.symbol ?? '',
-    event.eventType,
-    decimalKey(event.quantity),
-    decimalKey(event.price),
-    decimalKey(event.netAmount),
-    decimalKey(event.commission),
-    event.currency ?? '',
-    event.description,
-  ].join('|');
+function shouldPreferCandidate(existing: DashboardEventRow, candidate: DashboardEventRow) {
+  const priorityDiff = sourcePriority(candidate) - sourcePriority(existing);
+  if (priorityDiff !== 0) return priorityDiff > 0;
+
+  return candidate.createdAt.getTime() < existing.createdAt.getTime();
 }
 
 /**
- * Dashboard 计算层的保守去重。
+ * Conservative calculation-layer de-duplication.
  *
- * IBKR 导出的两个日期区间如果首尾同日重叠，同一笔交易可能出现在两个 CSV 文件里。
- * 数据库当前只保证同一个 importFile 内 rawRowIndex 唯一，不能识别跨文件重叠。
- *
- * 去重规则刻意保守：
- * - 只处理交易类事件
- * - 指纹完全一致
- * - 且来自不同 importFile
- *
- * 同一个文件里的相同交易会保留，因为那可能是真实的两笔同日同价成交。
+ * IBKR CSV statements and Daily Trade Report PDFs can contain the same fill.
+ * They differ in source, rawData shape, masked account id and commission
+ * precision, so sourceEventHash alone cannot catch the duplicate. The
+ * cross-source fingerprint keeps the fields that identify the fill itself:
+ * account tail, date/time, symbol, side, quantity, price and currency.
  */
 export function deduplicateDashboardEvents(
   events: DashboardEventRow[],
 ): DeduplicateDashboardEventsResult {
   const seenTrades = new Map<string, DashboardEventRow>();
+  const dedupedIndexes = new Map<string, number>();
   const dedupedEvents: DashboardEventRow[] = [];
   const skipped: DashboardEventRow[] = [];
 
@@ -50,22 +44,37 @@ export function deduplicateDashboardEvents(
       continue;
     }
 
-    const fingerprint = createTradeFingerprint(event);
+    const fingerprint = createCrossSourceTradeFingerprint(event);
+    if (!fingerprint) {
+      dedupedEvents.push(event);
+      continue;
+    }
+
     const existing = seenTrades.get(fingerprint);
 
     if (existing && existing.importFileId !== event.importFileId) {
-      skipped.push(event);
+      if (shouldPreferCandidate(existing, event)) {
+        const existingIndex = dedupedIndexes.get(fingerprint);
+        if (existingIndex !== undefined) {
+          dedupedEvents[existingIndex] = event;
+        }
+        seenTrades.set(fingerprint, event);
+        skipped.push(existing);
+      } else {
+        skipped.push(event);
+      }
       continue;
     }
 
     seenTrades.set(fingerprint, event);
+    dedupedIndexes.set(fingerprint, dedupedEvents.length);
     dedupedEvents.push(event);
   }
 
   const warnings =
     skipped.length > 0
       ? [
-          `检测到 ${skipped.length} 条跨文件重复交易，Dashboard 计算已跳过重复项。常见原因是两份 IBKR CSV 的日期区间首尾重叠。`,
+          `检测到 ${skipped.length} 条跨来源重复交易，组合计算已跳过重复项。常见原因是 CSV 和 Email PDF 包含同一笔 IBKR 成交。`,
           ...skipped.map(
             (event) =>
               `${event.tradeDate.toISOString().slice(0, 10)} ${event.symbol ?? '(no symbol)'} ${event.eventType} row ${event.rawRowIndex} from ${event.sourceFileName}`,

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CalendarPlus, RefreshCw } from 'lucide-react';
+import { ManualFillDialog } from '@/components/dashboard';
 import { Button, PageTitle } from '@/components/common';
 import {
   TransactionDetailDrawer,
@@ -21,6 +22,7 @@ export function TransactionsPage() {
   } = useTransactions();
   const [selectedTransaction, setSelectedTransaction] =
     useState<PortfolioTransactionApiDto | null>(null);
+  const [showManualFill, setShowManualFill] = useState(false);
   const warnings = data?.warnings ?? [];
 
   return (
@@ -30,16 +32,27 @@ export function TransactionsPage() {
           title="交易明细"
           description="查看股票买入 / 卖出记录，并通过 IBKR 原始记录排查持仓数量、成本和已实现盈亏。"
         />
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-9"
-          onClick={() => void refetch()}
-          disabled={loading}
-        >
-          <RefreshCw className="mr-2 h-4 w-4" />
-          刷新
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="primary"
+            size="sm"
+            className="h-9"
+            onClick={() => setShowManualFill(true)}
+          >
+            <CalendarPlus className="mr-2 h-4 w-4" />
+            手动补录
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9"
+            onClick={() => void refetch()}
+            disabled={loading}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            刷新
+          </Button>
+        </div>
       </div>
 
       {error ? (
@@ -93,6 +106,12 @@ export function TransactionsPage() {
         transaction={selectedTransaction}
         onClose={() => setSelectedTransaction(null)}
       />
+      {showManualFill ? (
+        <ManualFillDialog
+          onClose={() => setShowManualFill(false)}
+          onSuccess={() => void refetch()}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import {
   AllocationChart,
   AssetTrendChart,
+  DataHealthCard,
   PortfolioStats,
   RealizedPnlBySymbol,
   RecentTradesTable,
@@ -83,6 +84,7 @@ export function DashboardPage() {
       ) : null}
 
       <PortfolioStats stats={dashboard.stats} />
+      <DataHealthCard />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <AssetTrendChart

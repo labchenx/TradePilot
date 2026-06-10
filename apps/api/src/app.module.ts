@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from './auth/auth.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { DataGapModule } from './data-gap/data-gap.module';
 import { EmailSyncModule } from './email-sync/email-sync.module';
 import { HealthModule } from './health/health.module';
 import { ImportsModule } from './imports/imports.module';
@@ -21,6 +22,7 @@ import { TransactionEventsModule } from './transaction-events/transaction-events
     TransactionEventsModule,
     PortfolioModule,
     DashboardModule,
+    DataGapModule,
     SettingsModule,
   ],
 })

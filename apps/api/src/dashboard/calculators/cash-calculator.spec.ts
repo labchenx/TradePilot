@@ -13,7 +13,7 @@ function createEvent(
     sourceFileName: overrides.sourceFileName ?? 'sample.csv',
     sourceSection: 'Transaction History',
     rawRowIndex: overrides.rawRowIndex ?? 1,
-    rawData: {},
+    rawData: overrides.rawData ?? {},
     tradeDate: overrides.tradeDate ?? new Date('2026-01-01T00:00:00.000Z'),
     accountId: overrides.accountId ?? 'ALL',
     description: overrides.description ?? 'Sample',
@@ -100,5 +100,67 @@ describe('calculateCashMetrics', () => {
     expect(result.cashDebug.buyCash).toBe(-800);
     expect(result.cashDebug.source).toBe('IBKR_CASH_REPORT');
     expect(result.netDepositDebug.netDeposit).toBe(150);
+  });
+
+  it('applies manual gap fills to cash even when the trade date is before the latest cash report', () => {
+    const result = calculateCashMetrics(
+      [
+        createEvent({
+          rawRowIndex: 1,
+          tradeDate: new Date('2026-01-30T00:00:00.000Z'),
+          eventType: 'TRADE_BUY',
+          grossAmount: new Prisma.Decimal(-1500),
+          commission: new Prisma.Decimal(-1),
+          netAmount: new Prisma.Decimal(-1501),
+          rawData: {
+            source: 'MANUAL_GAP_FILL',
+            cashAdjustmentMode: 'ADJUST_CASH',
+          },
+        }),
+      ],
+      [
+        createImportFile({
+          periodEnd: new Date('2026-01-31T00:00:00.000Z'),
+          summary: {
+            cashReport: {
+              cashBalance: -1000,
+            },
+          },
+        }),
+      ],
+    );
+
+    expect(result.cashBalance.toNumber()).toBe(-2501);
+    expect(result.cashDebug.buyCash).toBe(-1501);
+    expect(result.cashDebug.source).toBe('IBKR_CASH_REPORT');
+  });
+
+  it('can keep a manual fill position-only when cash is already reflected elsewhere', () => {
+    const result = calculateCashMetrics(
+      [
+        createEvent({
+          rawRowIndex: 1,
+          tradeDate: new Date('2026-01-30T00:00:00.000Z'),
+          eventType: 'TRADE_BUY',
+          netAmount: new Prisma.Decimal(-1501),
+          rawData: {
+            source: 'MANUAL_GAP_FILL',
+            cashAdjustmentMode: 'POSITION_ONLY',
+          },
+        }),
+      ],
+      [
+        createImportFile({
+          periodEnd: new Date('2026-01-31T00:00:00.000Z'),
+          summary: {
+            cashReport: {
+              cashBalance: -1000,
+            },
+          },
+        }),
+      ],
+    );
+
+    expect(result.cashBalance.toNumber()).toBe(-1000);
   });
 });

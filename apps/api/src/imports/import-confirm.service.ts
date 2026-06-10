@@ -14,6 +14,7 @@ import {
   ImportPreviewRecord,
   NormalizedImportRecordData,
 } from './import-preview.types';
+import { createCrossSourceTradeFingerprint } from './trade-identity';
 
 function toDateOnly(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
@@ -206,6 +207,7 @@ export class ImportConfirmService {
 
       const importFileIds = await this.ensureImportFiles(tx, userId, records);
       const seenHashes = new Set<string>();
+      const seenTradeFingerprints = new Set<string>();
       const confirmedRecords: ImportConfirmRecord[] = [];
       const insertedRows: Prisma.TransactionEventCreateManyInput[] = [];
       const updatedAccountIds = new Set<string>();
@@ -218,6 +220,7 @@ export class ImportConfirmService {
           record,
           importFileIds,
           seenHashes,
+          seenTradeFingerprints,
           saveRawData,
         );
 
@@ -457,6 +460,7 @@ export class ImportConfirmService {
     record: ImportPreviewRecord,
     importFileIds: Map<string, string>,
     seenHashes: Set<string>,
+    seenTradeFingerprints: Set<string>,
     saveRawData: boolean,
   ): Promise<{
     record: ImportConfirmRecord;
@@ -498,6 +502,40 @@ export class ImportConfirmService {
       };
     }
     seenHashes.add(record.sourceHash);
+
+    const crossSourceFingerprint = createCrossSourceTradeFingerprint(record.data);
+    if (crossSourceFingerprint) {
+      if (seenTradeFingerprints.has(crossSourceFingerprint)) {
+        return {
+          record: {
+            tempId: record.tempId,
+            recordType: record.recordType,
+            status: 'DUPLICATE',
+            sourceHash: record.sourceHash,
+            errorMessage: 'Duplicate trade inside this import confirmation.',
+          },
+        };
+      }
+
+      const crossSourceDuplicate = await this.findCrossSourceDuplicate(
+        tx,
+        userId,
+        record.data,
+        crossSourceFingerprint,
+      );
+      if (crossSourceDuplicate) {
+        return {
+          record: {
+            tempId: record.tempId,
+            recordType: record.recordType,
+            status: 'DUPLICATE',
+            sourceHash: record.sourceHash,
+          },
+        };
+      }
+
+      seenTradeFingerprints.add(crossSourceFingerprint);
+    }
 
     const exactDuplicate = await tx.transactionEvent.findUnique({
       where: {
@@ -576,6 +614,38 @@ export class ImportConfirmService {
       },
       insertedRow: row,
     };
+  }
+
+  private async findCrossSourceDuplicate(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    data: NormalizedImportRecordData,
+    fingerprint: string,
+  ) {
+    if (!data.isTrade || !data.symbol || !data.side || data.absQuantity === undefined) {
+      return null;
+    }
+
+    const candidates = await tx.transactionEvent.findMany({
+      where: {
+        userId,
+        isTrade: true,
+        tradeDate: toDateOnly(data.tradeDate),
+        eventType: data.eventType as Prisma.TransactionEventWhereInput['eventType'],
+        symbol: data.symbol,
+        side: data.side as Prisma.TransactionEventWhereInput['side'],
+        absQuantity: decimal(data.absQuantity),
+        price: typeof data.price === 'number' ? decimal(data.price) : null,
+        currency: data.currency ?? null,
+      },
+      take: 20,
+    });
+
+    return (
+      candidates.find(
+        (candidate) => createCrossSourceTradeFingerprint(candidate) === fingerprint,
+      ) ?? null
+    );
   }
 
   private async updateExistingEvent(

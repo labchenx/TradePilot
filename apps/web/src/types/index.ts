@@ -1,6 +1,7 @@
 export * from './behavior';
 export * from './cashFlow';
 export * from './dashboard';
+export * from './dataGap';
 export * from './holding';
 export * from './import';
 export * from './navigation';

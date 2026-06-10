@@ -4,6 +4,7 @@ import type {
   TransactionListQuery,
   TransactionsResponseApiDto,
 } from '@/types';
+import { DATA_SYNC_STATUS_UPDATED_EVENT } from '@/utils/systemStatusEvents';
 
 const defaultQuery: TransactionListQuery = {
   search: '',
@@ -40,6 +41,16 @@ export function useTransactions() {
 
   useEffect(() => {
     void fetchTransactions();
+  }, [fetchTransactions]);
+
+  useEffect(() => {
+    const handleDataUpdated = () => {
+      void fetchTransactions();
+    };
+    window.addEventListener(DATA_SYNC_STATUS_UPDATED_EVENT, handleDataUpdated);
+    return () => {
+      window.removeEventListener(DATA_SYNC_STATUS_UPDATED_EVENT, handleDataUpdated);
+    };
   }, [fetchTransactions]);
 
   const updateQuery = useCallback((patch: Partial<TransactionListQuery>) => {

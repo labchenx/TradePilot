@@ -3,6 +3,7 @@ export * from './authTypes';
 export * from './behaviorService';
 export * from './cashFlowService';
 export * from './dashboardService';
+export * from './dataGapService';
 export * from './holdingService';
 export * from './importService';
 export * from './marketDataService';

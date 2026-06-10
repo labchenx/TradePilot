@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { dashboardService } from '@/services';
 import type { AssetTrendRange, DashboardData } from '@/types';
+import { DATA_SYNC_STATUS_UPDATED_EVENT } from '@/utils/systemStatusEvents';
 
 export function useDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -31,6 +32,16 @@ export function useDashboard() {
 
   useEffect(() => {
     void fetchDashboard();
+  }, [fetchDashboard]);
+
+  useEffect(() => {
+    const handleDataUpdated = () => {
+      void fetchDashboard();
+    };
+    window.addEventListener(DATA_SYNC_STATUS_UPDATED_EVENT, handleDataUpdated);
+    return () => {
+      window.removeEventListener(DATA_SYNC_STATUS_UPDATED_EVENT, handleDataUpdated);
+    };
   }, [fetchDashboard]);
 
   const refetchAssetTrend = useCallback(async (range: AssetTrendRange) => {
