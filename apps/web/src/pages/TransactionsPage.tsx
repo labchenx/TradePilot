@@ -18,6 +18,7 @@ export function TransactionsPage() {
     query,
     updateQuery,
     resetQuery,
+    updateTransactionSide,
     refetch,
   } = useTransactions();
   const [selectedTransaction, setSelectedTransaction] =
@@ -105,6 +106,11 @@ export function TransactionsPage() {
       <TransactionDetailDrawer
         transaction={selectedTransaction}
         onClose={() => setSelectedTransaction(null)}
+        onCorrectSide={async (id, side) => {
+          const updated = await updateTransactionSide(id, side);
+          setSelectedTransaction(updated);
+          return updated;
+        }}
       />
       {showManualFill ? (
         <ManualFillDialog

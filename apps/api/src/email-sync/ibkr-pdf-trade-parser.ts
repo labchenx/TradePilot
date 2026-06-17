@@ -169,12 +169,11 @@ function shouldAppendContinuation(line: string) {
 function parseTradeRow(rowText: string): ParsedIbkrPdfTrade | ParsedIbkrPdfTradeError {
   const tokens = tokenizeRow(rowText);
   const dateIndex = tokens.findIndex((token) => DATE_TOKEN_REGEX.test(token));
-  const sideIndex = tokens.findIndex((token) => SIDE_TOKEN_REGEX.test(token));
 
-  if (dateIndex < 0 || sideIndex < 0) {
+  if (dateIndex < 0) {
     return {
       rawText: rowText,
-      message: 'Missing trade date or side in Trades row.',
+      message: 'Missing trade date in Trades row.',
     };
   }
 
@@ -192,6 +191,20 @@ function parseTradeRow(rowText: string): ParsedIbkrPdfTrade | ParsedIbkrPdfTrade
   const settleDate = DATE_TOKEN_REGEX.test(tokens[cursor] ?? '')
     ? normalizeDate(tokens[cursor++])
     : undefined;
+  // Search for BUY/SELL only after the date columns. Symbols like "BRK B" can
+  // contain a single-letter token that is not the trade direction.
+  const relativeSideIndex = tokens
+    .slice(cursor)
+    .findIndex((token) => SIDE_TOKEN_REGEX.test(token));
+  const sideIndex = relativeSideIndex >= 0 ? cursor + relativeSideIndex : -1;
+
+  if (sideIndex < 0) {
+    return {
+      rawText: rowText,
+      message: 'Missing trade side in Trades row.',
+    };
+  }
+
   const exchange =
     sideIndex > cursor ? tokens.slice(cursor, sideIndex).join(' ').trim() : undefined;
   const side = normalizeSide(tokens[sideIndex]);

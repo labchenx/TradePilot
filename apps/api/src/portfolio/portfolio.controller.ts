@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { CurrentUserParam } from '../auth/current-user.decorator';
 import { CurrentUser } from '../auth/auth.types';
 import { AssetTrendRange } from '../dashboard/dto/asset-trend.dto';
 import { GetTradingBehaviorDto } from './dto/get-trading-behavior.dto';
 import { ListPortfolioTransactionsDto } from './dto/list-portfolio-transactions.dto';
+import { UpdateTransactionSideDto } from './dto/update-transaction-side.dto';
 import { MonthlySnapshotService } from './monthly-snapshot.service';
 import { MonthlyTrendService } from './monthly-trend.service';
 import { PortfolioAnalyticsService } from './portfolio-analytics.service';
@@ -44,6 +45,19 @@ export class PortfolioController {
     @Query() query: ListPortfolioTransactionsDto,
   ) {
     return this.portfolioTransactionsService.getTransactions(user.id, query);
+  }
+
+  @Patch('transactions/:id/side')
+  updateTransactionSide(
+    @CurrentUserParam() user: CurrentUser,
+    @Param('id') id: string,
+    @Body() body: UpdateTransactionSideDto,
+  ) {
+    return this.portfolioTransactionsService.updateTransactionSide(
+      user.id,
+      id,
+      body.side,
+    );
   }
 
   @Get('cash-flows')

@@ -107,6 +107,31 @@ describe('parseIbkrPdfTrades', () => {
     });
   });
 
+  it('does not treat BRK B class suffix as a BUY side token', () => {
+    const text = [
+      'Daily Trade Report',
+      'Trades',
+      'Acct ID Symbol Trade Date/Time Settle Date Type Quantity Price Proceeds Comm Fee Order Type Code Currency',
+      'U***66165 BRK B 2026-06-15, 09:30:00 2026-06-16 SELL 4 489.40 1,957.20 -0.40 0.00 LMT C USD',
+    ].join('\n');
+
+    const result = parseIbkrPdfTrades(text);
+
+    expect(result.errors).toEqual([]);
+    expect(result.trades).toHaveLength(1);
+    expect(result.trades[0]).toMatchObject({
+      accountId: 'U***66165',
+      symbol: 'BRK B',
+      side: 'SELL',
+      quantity: 4,
+      price: 489.4,
+      proceeds: 1957.2,
+      commission: -0.4,
+      fee: 0,
+      currency: 'USD',
+    });
+  });
+
   it('creates stable source hashes from normalized trade fields', () => {
     const base = {
       accountId: 'U1234567',

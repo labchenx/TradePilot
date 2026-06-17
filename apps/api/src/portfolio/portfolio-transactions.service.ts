@@ -1,18 +1,21 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TradeSide } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { DashboardEventRow } from '../dashboard/calculators/dashboard-calculator.types';
 import { toDecimal, toPlainNumber } from '../dashboard/calculators/dashboard-decimal.util';
 import { deduplicateDashboardEvents } from '../dashboard/calculators/deduplicate-events.util';
 import { findIbkrRealizedPnl } from '../dashboard/calculators/realized-pnl-source.calculator';
+import { createEmailPdfTradeSourceHash } from '../email-sync/ibkr-pdf-trade-parser';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ListPortfolioTransactionsDto,
   PortfolioTransactionSortBy,
   PortfolioTransactionSide,
 } from './dto/list-portfolio-transactions.dto';
+import { UpdateTransactionSide } from './dto/update-transaction-side.dto';
 
 type TransactionEventRow = Prisma.TransactionEventGetPayload<object>;
+type JsonObject = Record<string, unknown>;
 
 export interface PortfolioTransactionSummary {
   totalTrades: number;
@@ -125,6 +128,90 @@ function mapTransaction(row: TransactionEventRow): PortfolioTransactionItem {
     eventType: row.eventType,
     rawRecord: row.rawData,
   };
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseRawNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return undefined;
+
+  const parsed = Number(value.replace(/[(),]/g, ''));
+  if (!Number.isFinite(parsed)) return undefined;
+  return /^\(.*\)$/.test(value) ? -parsed : parsed;
+}
+
+function getRawString(rawData: JsonObject, key: string) {
+  const value = rawData[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function buildCorrectedRawData(
+  rawData: Prisma.JsonValue,
+  side: UpdateTransactionSide,
+  sourceHash?: string | null,
+) {
+  if (!isJsonObject(rawData)) {
+    return { side, sourceHash };
+  }
+
+  return {
+    ...rawData,
+    side,
+    ibkrType: side,
+    sourceHash: sourceHash ?? rawData.sourceHash,
+  };
+}
+
+function buildCorrectedDescription(
+  row: TransactionEventRow,
+  side: UpdateTransactionSide,
+) {
+  if (row.source === 'IBKR_EMAIL_PDF' && row.symbol) {
+    return `IBKR Email PDF ${side} ${row.symbol}`;
+  }
+
+  return row.description;
+}
+
+function buildCorrectedEmailPdfSourceHash(input: {
+  row: TransactionEventRow;
+  rawData: JsonObject;
+  side: UpdateTransactionSide;
+  quantityAbs: Decimal;
+  price: Decimal | null;
+  grossAmount: Decimal;
+}) {
+  const { row, rawData, side, quantityAbs, price, grossAmount } = input;
+  if (row.source !== 'IBKR_EMAIL_PDF' || !row.symbol || !price) {
+    return row.sourceEventHash;
+  }
+
+  const tradeDate = dateOnly(row.tradeDate);
+  const tradeDateTime = getRawString(rawData, 'tradeDateTime') ?? `${tradeDate} 00:00:00`;
+  const commission =
+    parseRawNumber(rawData.commission) ?? toPlainNumber(toDecimal(row.commission));
+  const fee = parseRawNumber(rawData.fee) ?? 0;
+
+  return createEmailPdfTradeSourceHash({
+    accountId: row.accountId || undefined,
+    symbol: row.symbol,
+    tradeDateTime,
+    tradeDate,
+    settleDate: getRawString(rawData, 'settleDate'),
+    exchange: getRawString(rawData, 'exchange'),
+    side,
+    quantity: toPlainNumber(quantityAbs),
+    price: toPlainNumber(price),
+    proceeds: toPlainNumber(grossAmount),
+    commission,
+    fee,
+    currency: row.currency ?? DEFAULT_CURRENCY,
+    orderType: getRawString(rawData, 'orderType'),
+    code: getRawString(rawData, 'code'),
+  });
 }
 
 function compareNullableNumber(
@@ -363,5 +450,98 @@ export class PortfolioTransactionsService {
       },
       warnings: buildWarnings(allTransactions, dedupeWarnings),
     };
+  }
+
+  async updateTransactionSide(
+    userId: string,
+    id: string,
+    side: UpdateTransactionSide,
+  ): Promise<PortfolioTransactionItem> {
+    const row = await this.prisma.transactionEvent.findUnique({
+      where: { id },
+    });
+
+    if (!row || row.userId !== userId) {
+      throw new NotFoundException('Transaction record was not found.');
+    }
+
+    if (!row.isTrade || row.isExternalCashFlow || !row.symbol) {
+      throw new BadRequestException('Only stock BUY/SELL trade rows can be corrected.');
+    }
+
+    if (row.side !== 'BUY' && row.side !== 'SELL') {
+      throw new BadRequestException('This transaction does not have a BUY/SELL side.');
+    }
+
+    const quantityAbs = toDecimal(row.absQuantity ?? row.quantity ?? new Prisma.Decimal(0)).abs();
+    const price = row.price ? toDecimal(row.price) : null;
+    const grossAbs = toDecimal(row.grossAmount).abs();
+    const correctedQuantity = side === 'SELL' ? quantityAbs.negated() : quantityAbs;
+    const correctedGrossAmount = side === 'BUY' ? grossAbs.negated() : grossAbs;
+    const correctedNetAmount = correctedGrossAmount.plus(toDecimal(row.commission));
+    const rawData = isJsonObject(row.rawData) ? row.rawData : {};
+    const correctedSourceHash = buildCorrectedEmailPdfSourceHash({
+      row,
+      rawData,
+      side,
+      quantityAbs,
+      price,
+      grossAmount: correctedGrossAmount,
+    });
+
+    if (correctedSourceHash && correctedSourceHash !== row.sourceEventHash) {
+      const duplicate = await this.prisma.transactionEvent.findFirst({
+        where: {
+          userId,
+          sourceEventHash: correctedSourceHash,
+          id: { not: id },
+        },
+        select: { id: true },
+      });
+
+      if (duplicate) {
+        throw new BadRequestException(
+          'A transaction with the corrected source hash already exists.',
+        );
+      }
+    }
+
+    const correctedRawData = buildCorrectedRawData(
+      row.rawData,
+      side,
+      correctedSourceHash,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.transactionEvent.update({
+        where: { id },
+        data: {
+          sourceEventHash: correctedSourceHash,
+          description: buildCorrectedDescription(row, side),
+          ibkrType: side,
+          eventType: side === 'BUY' ? 'TRADE_BUY' : 'TRADE_SELL',
+          quantity: new Prisma.Decimal(correctedQuantity.toString()),
+          absQuantity: new Prisma.Decimal(quantityAbs.toString()),
+          grossAmount: new Prisma.Decimal(correctedGrossAmount.toString()),
+          netAmount: new Prisma.Decimal(correctedNetAmount.toString()),
+          side,
+          rawData: correctedRawData as Prisma.InputJsonValue,
+        },
+      });
+
+      if (row.sourceEventHash) {
+        await tx.importRecord.updateMany({
+          where: {
+            userId,
+            sourceHash: row.sourceEventHash,
+          },
+          data: {
+            sourceHash: correctedSourceHash,
+          },
+        });
+      }
+
+      return mapTransaction(updated);
+    });
   }
 }

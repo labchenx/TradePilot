@@ -1,14 +1,23 @@
 import type {
+  PortfolioTransactionApiDto,
+  TradeSide,
   TransactionListQuery,
   TransactionsResponseApiDto,
 } from '@/types';
 import { apiFetch } from './apiClient';
 
-async function requestApi<T>(path: string): Promise<T> {
-  const response = await apiFetch(path);
+async function requestApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await apiFetch(path, init);
 
   if (!response.ok) {
-    throw new Error(`交易明细接口请求失败：${response.status}`);
+    const body = await response.json().catch(() => null);
+    const message =
+      typeof body?.message === 'string'
+        ? body.message
+        : Array.isArray(body?.message)
+          ? body.message.join('; ')
+          : `Transaction API request failed: ${response.status}`;
+    throw new Error(message);
   }
 
   return response.json() as Promise<T>;
@@ -38,6 +47,18 @@ export const transactionService = {
   listTransactions(query: TransactionListQuery) {
     return requestApi<TransactionsResponseApiDto>(
       `/portfolio/transactions?${buildQueryString(query)}`,
+    );
+  },
+  updateTransactionSide(id: string, side: TradeSide) {
+    return requestApi<PortfolioTransactionApiDto>(
+      `/api/portfolio/transactions/${id}/side`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ side }),
+      },
     );
   },
 };

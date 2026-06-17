@@ -61,7 +61,7 @@ describe('PortfolioTransactionsService', () => {
         netAmount: new Prisma.Decimal(10),
       }),
     ];
-    const prisma = {
+    const prisma: any = {
       transactionEvent: {
         findMany: jest.fn().mockResolvedValue(rows),
       },
@@ -113,7 +113,7 @@ describe('PortfolioTransactionsService', () => {
         isExternalCashFlow: true,
       }),
     ];
-    const prisma = {
+    const prisma: any = {
       transactionEvent: {
         findMany: jest.fn().mockResolvedValue(rows),
       },
@@ -132,7 +132,8 @@ describe('PortfolioTransactionsService', () => {
   });
 
   it('supports query parameters and warns when sell realizedPnl is missing', async () => {
-    const prisma = {
+    let prisma: any;
+    prisma = {
       transactionEvent: {
         findMany: jest.fn().mockResolvedValue([
           tradeEvent({
@@ -173,5 +174,102 @@ describe('PortfolioTransactionsService', () => {
     expect(result.warnings.join('\n')).toContain(
       'SELL trade rows do not include IBKR realizedPnl',
     );
+  });
+
+  it('corrects an imported email PDF BUY row to SELL and updates signed fields', async () => {
+    const row = tradeEvent({
+      id: 'brk-bug',
+      userId: 'user-1',
+      source: 'IBKR_EMAIL_PDF',
+      sourceEventHash: 'old-buy-hash',
+      sourceFileName: 'DailyTradeReport.20260615.pdf',
+      description: 'IBKR Email PDF BUY BRK B',
+      ibkrType: 'BUY',
+      symbol: 'BRK B',
+      quantity: new Prisma.Decimal(4),
+      absQuantity: new Prisma.Decimal(4),
+      price: new Prisma.Decimal(489.4),
+      grossAmount: new Prisma.Decimal(1957.2),
+      commission: new Prisma.Decimal(-0.4),
+      netAmount: new Prisma.Decimal(1956.8),
+      side: 'BUY',
+      rawData: {
+        source: 'IBKR_EMAIL_PDF',
+        accountId: 'U***66165',
+        symbol: 'BRK B',
+        tradeDateTime: '2026-06-15 09:30:00',
+        tradeDate: '2026-06-15',
+        settleDate: '2026-06-16',
+        side: 'BUY',
+        quantity: 4,
+        price: 489.4,
+        proceeds: 1957.2,
+        commission: -0.4,
+        fee: 0,
+        currency: 'USD',
+        orderType: 'LMT',
+        code: 'C',
+      },
+    });
+    const prisma = {
+      transactionEvent: {
+        findUnique: jest.fn().mockResolvedValue(row),
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn().mockImplementation(({ data }) =>
+          Promise.resolve({
+            ...row,
+            ...data,
+          }),
+        ),
+      },
+      importRecord: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      $transaction: jest.fn((callback: (tx: any) => unknown): unknown =>
+        callback(prisma),
+      ),
+    };
+    const service = new PortfolioTransactionsService(prisma as never);
+
+    const result = await service.updateTransactionSide('user-1', 'brk-bug', 'SELL');
+    const updateData = prisma.transactionEvent.update.mock.calls[0][0].data;
+
+    expect(prisma.transactionEvent.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 'user-1',
+          id: { not: 'brk-bug' },
+        }),
+      }),
+    );
+    expect(updateData).toMatchObject({
+      description: 'IBKR Email PDF SELL BRK B',
+      ibkrType: 'SELL',
+      eventType: 'TRADE_SELL',
+      side: 'SELL',
+    });
+    expect(updateData.sourceEventHash).not.toBe('old-buy-hash');
+    expect(updateData.quantity.toString()).toBe('-4');
+    expect(updateData.grossAmount.toString()).toBe('1957.2');
+    expect(updateData.netAmount.toString()).toBe('1956.8');
+    expect(updateData.rawData).toMatchObject({
+      side: 'SELL',
+      sourceHash: updateData.sourceEventHash,
+    });
+    expect(prisma.importRecord.updateMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        sourceHash: 'old-buy-hash',
+      },
+      data: {
+        sourceHash: updateData.sourceEventHash,
+      },
+    });
+    expect(result).toMatchObject({
+      id: 'brk-bug',
+      side: 'SELL',
+      quantity: 4,
+      amount: 1956.8,
+    });
   });
 });

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { transactionService } from '@/services';
 import type {
+  TradeSide,
   TransactionListQuery,
+  PortfolioTransactionApiDto,
   TransactionsResponseApiDto,
 } from '@/types';
 import { DATA_SYNC_STATUS_UPDATED_EVENT } from '@/utils/systemStatusEvents';
@@ -65,6 +67,15 @@ export function useTransactions() {
     setQuery(defaultQuery);
   }, []);
 
+  const updateTransactionSide = useCallback(
+    async (id: string, side: TradeSide): Promise<PortfolioTransactionApiDto> => {
+      const updated = await transactionService.updateTransactionSide(id, side);
+      await fetchTransactions();
+      return updated;
+    },
+    [fetchTransactions],
+  );
+
   return {
     data,
     loading,
@@ -72,6 +83,7 @@ export function useTransactions() {
     query,
     updateQuery,
     resetQuery,
+    updateTransactionSide,
     refetch: fetchTransactions,
   };
 }

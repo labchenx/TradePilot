@@ -1,12 +1,16 @@
-import { X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { Repeat2, X } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { Button, ProfitLossNumber, Tag } from '@/components/common';
-import type { PortfolioTransactionApiDto } from '@/types';
+import type { PortfolioTransactionApiDto, TradeSide } from '@/types';
 import { formatCurrency } from '@/utils';
 
 interface TransactionDetailDrawerProps {
   transaction: PortfolioTransactionApiDto | null;
   onClose: () => void;
+  onCorrectSide?: (
+    id: string,
+    side: TradeSide,
+  ) => Promise<PortfolioTransactionApiDto>;
 }
 
 function Field({
@@ -38,10 +42,33 @@ function nullableCurrency(
 export function TransactionDetailDrawer({
   transaction,
   onClose,
+  onCorrectSide,
 }: TransactionDetailDrawerProps) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   if (!transaction) {
     return null;
   }
+
+  const correctedSide: TradeSide = transaction.side === 'BUY' ? 'SELL' : 'BUY';
+  const handleCorrectSide = async () => {
+    if (!onCorrectSide) return;
+    setSaving(true);
+    setError(null);
+
+    try {
+      await onCorrectSide(transaction.id, correctedSide);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Failed to update transaction side.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
@@ -109,6 +136,33 @@ export function TransactionDetailDrawer({
               }
             />
             <Field label="来源" value={transaction.source} />
+          </section>
+
+          <section className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/60 dark:bg-amber-950/30 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                交易方向纠错
+              </p>
+              <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+                当前为 {transaction.side}，可修正为 {correctedSide}
+              </p>
+              {error ? (
+                <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">
+                  {error}
+                </p>
+              ) : null}
+            </div>
+            <Button
+              type="button"
+              variant={correctedSide === 'SELL' ? 'danger' : 'outline'}
+              size="sm"
+              className="h-9 shrink-0"
+              onClick={() => void handleCorrectSide()}
+              disabled={saving || !onCorrectSide}
+            >
+              <Repeat2 className="mr-2 h-4 w-4" />
+              {saving ? '修正中...' : `修正为 ${correctedSide}`}
+            </Button>
           </section>
 
           <section className="grid grid-cols-1 gap-4 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800 sm:grid-cols-2">
