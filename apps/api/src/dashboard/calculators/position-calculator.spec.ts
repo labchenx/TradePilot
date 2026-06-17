@@ -14,7 +14,7 @@ function createEvent(
     sourceFileName: 'sample.csv',
     sourceSection: 'sample',
     rawRowIndex: overrides.rawRowIndex ?? 1,
-    rawData: {},
+    rawData: overrides.rawData ?? {},
     tradeDate: overrides.tradeDate ?? new Date('2026-01-01T00:00:00.000Z'),
     accountId: 'U***66165',
     description: overrides.description ?? 'Sample',
@@ -104,6 +104,53 @@ describe('calculatePositionCost', () => {
         warning.includes('ORCL transfer-out quantity 4'),
       ),
     ).toBe(false);
+  });
+
+  it('uses raw execution time before raw row index for same-day FIFO lots', () => {
+    const tradeDate = new Date('2026-04-10T00:00:00.000Z');
+    const result = calculatePositionCost([
+      createEvent({
+        rawRowIndex: 1,
+        rawData: { tradeDateTime: '2026-04-10 10:00:00' },
+        tradeDate,
+        eventType: 'TRADE_BUY',
+        symbol: 'NVDA',
+        quantity: new Prisma.Decimal(10),
+        absQuantity: new Prisma.Decimal(10),
+        netAmount: new Prisma.Decimal(-2000),
+        side: 'BUY',
+        isTrade: true,
+      }),
+      createEvent({
+        rawRowIndex: 2,
+        rawData: { tradeDateTime: '2026-04-10 11:00:00' },
+        tradeDate,
+        eventType: 'TRADE_SELL',
+        symbol: 'NVDA',
+        quantity: new Prisma.Decimal(-10),
+        absQuantity: new Prisma.Decimal(10),
+        netAmount: new Prisma.Decimal(1500),
+        side: 'SELL',
+        isTrade: true,
+      }),
+      createEvent({
+        rawRowIndex: 3,
+        rawData: { tradeDateTime: '2026-04-10 09:00:00' },
+        tradeDate,
+        eventType: 'TRADE_BUY',
+        symbol: 'NVDA',
+        quantity: new Prisma.Decimal(10),
+        absQuantity: new Prisma.Decimal(10),
+        netAmount: new Prisma.Decimal(-1000),
+        side: 'BUY',
+        isTrade: true,
+      }),
+    ]);
+
+    const nvda = result.positions.find((position) => position.symbol === 'NVDA');
+
+    expect(nvda?.remainingQuantity.toNumber()).toBe(10);
+    expect(nvda?.averageCost.toNumber()).toBe(200);
   });
 
   it('does not count vested IBKR stock grant rows twice', () => {

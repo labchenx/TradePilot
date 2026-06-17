@@ -5,6 +5,7 @@ import {
   PositionCostResult,
 } from './dashboard-calculator.types';
 import { absDecimal, toDecimal } from './dashboard-decimal.util';
+import { compareDashboardEventsByExecutionTime } from './event-sort.util';
 import { convertToDashboardCurrency } from './exchange-rate.util';
 
 interface PositionLot {
@@ -56,11 +57,6 @@ function createPosition(symbol: string): MutablePosition {
     soldQuantity: new Decimal(0),
     tradeCount: 0,
   };
-}
-
-function sortEvents(a: DashboardEventRow, b: DashboardEventRow) {
-  const dateDiff = a.tradeDate.getTime() - b.tradeDate.getTime();
-  return dateDiff === 0 ? a.rawRowIndex - b.rawRowIndex : dateDiff;
 }
 
 function sumLotQuantity(lots: PositionLot[]) {
@@ -221,7 +217,7 @@ export function calculatePositionCost(
         'UNKNOWN',
       ].includes(event.eventType),
     )
-    .sort(sortEvents);
+    .sort(compareDashboardEventsByExecutionTime);
 
   for (const event of relevantEvents) {
     const symbol = event.symbol as string;

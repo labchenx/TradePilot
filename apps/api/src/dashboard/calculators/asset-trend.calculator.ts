@@ -6,16 +6,12 @@ import {
 } from '../dto/asset-trend.dto';
 import { DashboardEventRow } from './dashboard-calculator.types';
 import { absDecimal, toDecimal, toPlainNumber } from './dashboard-decimal.util';
+import { compareDashboardEventsByExecutionTime } from './event-sort.util';
 import { convertToDashboardCurrency } from './exchange-rate.util';
 
 interface MonthlyPosition {
   quantity: Decimal;
   cost: Decimal;
-}
-
-function sortEvents(a: DashboardEventRow, b: DashboardEventRow) {
-  const dateDiff = a.tradeDate.getTime() - b.tradeDate.getTime();
-  return dateDiff === 0 ? a.rawRowIndex - b.rawRowIndex : dateDiff;
 }
 
 function getMonthKey(event: DashboardEventRow) {
@@ -99,7 +95,7 @@ export function calculateAssetTrend(
   let cashBalance = new Decimal(0);
   let netDeposit = new Decimal(0);
 
-  for (const event of [...events].sort(sortEvents)) {
+  for (const event of [...events].sort(compareDashboardEventsByExecutionTime)) {
     const convertedNetAmount = convertToDashboardCurrency(
       toDecimal(event.netAmount),
       event.currency,
