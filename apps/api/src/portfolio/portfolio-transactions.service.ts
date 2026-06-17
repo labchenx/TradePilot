@@ -452,6 +452,70 @@ export class PortfolioTransactionsService {
     };
   }
 
+  /**
+   * Export all transactions matching the current filters as CSV text.
+   * No pagination — returns every row so the frontend can download the full set.
+   */
+  async exportTransactions(
+    userIdOrQuery: string | ListPortfolioTransactionsDto,
+    maybeQuery?: ListPortfolioTransactionsDto,
+  ): Promise<string> {
+    const userId =
+      typeof userIdOrQuery === 'string' ? userIdOrQuery : DEFAULT_USER_ID;
+    const query =
+      typeof userIdOrQuery === 'string' ? (maybeQuery ?? {}) : userIdOrQuery;
+    const sortBy = query.sortBy ?? 'date';
+    const sortDirection = query.sortDirection ?? 'desc';
+
+    const { transactions: transactionItems } = await this.listTransactionItems({
+      userId,
+      search: query.search,
+      side: query.side,
+    });
+
+    const sorted = sortTransactions(transactionItems, sortBy, sortDirection);
+
+    const headers = [
+      'date',
+      'symbol',
+      'name',
+      'side',
+      'quantity',
+      'price',
+      'amount',
+      'commission',
+      'realizedPnl',
+      'currency',
+      'source',
+      'accountId',
+      'eventType',
+      'description',
+    ];
+
+    const csvRows = sorted.map((t) =>
+      [
+        t.date,
+        t.symbol,
+        t.name ?? '',
+        t.side,
+        t.quantity ?? '',
+        t.price ?? '',
+        t.amount,
+        t.commission,
+        t.realizedPnl ?? '',
+        t.currency,
+        t.source,
+        t.accountId,
+        t.eventType,
+        (t.description ?? '').replace(/"/g, '""'),
+      ]
+        .map((value) => (typeof value === 'string' && value.includes(',') ? `"${value}"` : value))
+        .join(','),
+    );
+
+    return [headers.join(','), ...csvRows].join('\n');
+  }
+
   async updateTransactionSide(
     userId: string,
     id: string,

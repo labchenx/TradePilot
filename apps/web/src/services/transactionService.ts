@@ -61,4 +61,46 @@ export const transactionService = {
       },
     );
   },
+  async exportTransactions(query: TransactionListQuery): Promise<void> {
+    const params = new URLSearchParams({
+      sortBy: query.sortBy,
+      sortDirection: query.sortDirection,
+    });
+    const search = query.search.trim();
+
+    if (search) {
+      params.set('search', search);
+    }
+
+    if (query.side !== 'ALL') {
+      params.set('side', query.side);
+    }
+
+    const response = await apiFetch(
+      `/portfolio/transactions/export?${params.toString()}`,
+    );
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      const message =
+        typeof body?.message === 'string'
+          ? body.message
+          : `Export failed: ${response.status}`;
+      throw new Error(message);
+    }
+
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get('Content-Disposition');
+    const filenameMatch = contentDisposition?.match(/filename="?([^";\n]+)"?/);
+    const filename = filenameMatch?.[1] ?? 'tradepilot-transactions.csv';
+
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  },
 };

@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Filter, Search } from 'lucide-react';
+import { Download, Filter, Search } from 'lucide-react';
 import { useTransactions } from '@/hooks';
 import { cn } from '@/utils';
 import { MobileEmpty, MobileError, MobileLoading } from './MobileState';
 import { dateText, money } from './mobileFormat';
 
 export function MobileTrades() {
-  const { data, loading, error, query, updateQuery, resetQuery } = useTransactions();
+  const { data, loading, error, query, updateQuery, resetQuery, exportTransactions, exporting, exportError } = useTransactions();
   const [showFilters, setShowFilters] = useState(false);
   const transactions = data?.transactions ?? [];
   const hasActiveFilters =
@@ -20,6 +20,12 @@ export function MobileTrades() {
 
   return (
     <div className="space-y-4">
+      {exportError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+          <p className="font-semibold">导出失败</p>
+          <p className="mt-1">{exportError}</p>
+        </div>
+      ) : null}
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-400 dark:text-neutral-500" />
@@ -59,6 +65,15 @@ export function MobileTrades() {
           {hasActiveFilters ? (
             <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-blue-600 dark:bg-blue-300" />
           ) : null}
+        </button>
+        <button
+          type="button"
+          onClick={() => void exportTransactions()}
+          disabled={exporting}
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-600 transition-colors hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400"
+          aria-label="导出 CSV"
+        >
+          <Download className="h-4 w-4" />
         </button>
       </div>
 

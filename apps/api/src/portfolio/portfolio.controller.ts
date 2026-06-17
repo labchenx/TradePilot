@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { CurrentUserParam } from '../auth/current-user.decorator';
 import { CurrentUser } from '../auth/auth.types';
 import { AssetTrendRange } from '../dashboard/dto/asset-trend.dto';
@@ -45,6 +45,29 @@ export class PortfolioController {
     @Query() query: ListPortfolioTransactionsDto,
   ) {
     return this.portfolioTransactionsService.getTransactions(user.id, query);
+  }
+
+  @Get('transactions/export')
+  async exportTransactions(
+    @CurrentUserParam() user: CurrentUser,
+    @Query() query: ListPortfolioTransactionsDto,
+    @Res() res: any,
+  ) {
+    const csv = await this.portfolioTransactionsService.exportTransactions(
+      user.id,
+      query,
+    );
+
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const filename = `tradepilot-transactions-${timestamp}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`,
+    );
+    // UTF-8 BOM so Excel / WPS recognize Chinese characters
+    res.send('﻿' + csv);
   }
 
   @Patch('transactions/:id/side')

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, CalendarPlus, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CalendarPlus, Download, RefreshCw } from 'lucide-react';
 import { ManualFillDialog } from '@/components/dashboard';
 import { Button, PageTitle } from '@/components/common';
 import {
@@ -20,6 +20,9 @@ export function TransactionsPage() {
     resetQuery,
     updateTransactionSide,
     refetch,
+    exportTransactions,
+    exporting,
+    exportError,
   } = useTransactions();
   const [selectedTransaction, setSelectedTransaction] =
     useState<PortfolioTransactionApiDto | null>(null);
@@ -53,6 +56,16 @@ export function TransactionsPage() {
             <RefreshCw className="mr-2 h-4 w-4" />
             刷新
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9"
+            onClick={() => void exportTransactions()}
+            disabled={exporting}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            {exporting ? '导出中...' : '导出 CSV'}
+          </Button>
         </div>
       </div>
 
@@ -68,6 +81,13 @@ export function TransactionsPage() {
           >
             重试
           </Button>
+        </div>
+      ) : null}
+
+      {exportError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+          <p className="font-semibold">导出失败</p>
+          <p className="mt-1">{exportError}</p>
         </div>
       ) : null}
 

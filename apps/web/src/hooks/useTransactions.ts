@@ -23,6 +23,9 @@ export function useTransactions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -76,6 +79,23 @@ export function useTransactions() {
     [fetchTransactions],
   );
 
+  const exportTransactions = useCallback(async () => {
+    setExporting(true);
+    setExportError(null);
+
+    try {
+      await transactionService.exportTransactions(query);
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : 'Export failed.';
+      setExportError(message);
+    } finally {
+      setExporting(false);
+    }
+  }, [query]);
+
   return {
     data,
     loading,
@@ -85,5 +105,8 @@ export function useTransactions() {
     resetQuery,
     updateTransactionSide,
     refetch: fetchTransactions,
+    exportTransactions,
+    exporting,
+    exportError,
   };
 }
